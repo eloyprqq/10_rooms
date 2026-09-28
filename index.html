@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>10_rooms</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="vignette"></div>
+  <div id="grain"></div>
+  <div id="hurt"></div>
+
+  <div id="hud" class="hidden">
+    <div id="hp-wrap">
+      <div class="hp-label"><span>체력</span><b id="hp-num">100</b></div>
+      <div class="hp-track"><div id="hp-fill"></div></div>
+    </div>
+    <div id="status-col">
+      <div id="room-label">식당</div>
+      <div id="clock-readout" class="hidden">시각 1</div>
+      <div id="alarm-line"></div>
+      <div id="warn-line"></div>
+    </div>
+    <div id="net-pill" class="hidden"></div>
+    <button id="mute-btn" type="button">소리</button>
+    <div id="toasts"></div>
+    <div id="prompt"></div>
+    <div id="hotbar"></div>
+    <div id="help-mini">WASD 이동 · E 상호작용 · 마우스/F 사용 · Q 버리기 · 1–4 선택 · Esc</div>
+  </div>
+
+  <section id="menu" class="screen">
+    <div class="panel">
+      <p class="kicker">FACILITY LOG</p>
+      <h1>10_rooms</h1>
+      <p class="lead">열 개의 방. 복도에 무언가가 있다. 손전등을 켜기 전에는 보이지 않는다.</p>
+      <div class="row" id="diffs">
+        <button class="diff" type="button" data-diff="easy">쉬움<small>괴물 1</small></button>
+        <button class="diff on" type="button" data-diff="normal">보통<small>괴물 2</small></button>
+        <button class="diff" type="button" data-diff="hard">어려움<small>괴물 3</small></button>
+        <button class="diff" type="button" data-diff="extreme">극한<small>괴물 4</small></button>
+      </div>
+      <label class="field">이름
+        <input id="player-name" type="text" maxlength="12" value="탐색자" />
+      </label>
+      <div class="row">
+        <button id="btn-single" class="solid" type="button">싱글플레이</button>
+        <button id="btn-multi" class="choice" type="button">멀티플레이</button>
+        <button id="btn-manual" class="ghost" type="button">기록</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="manual" class="screen dim hidden">
+    <div class="panel scroll">
+      <p class="kicker">기록</p>
+      <h2>시설 수칙</h2>
+      <h3>시간</h3>
+      <p>현실 시간 3초마다 시설 시각이 1, 2, 3 중 하나로 뛴다. 숫자는 시계를 들고 있을 때만 보인다.</p>
+      <h3>괴물</h3>
+      <p>보이지 않는다. 손전등을 비추면 흐릿하게 드러난다. 같은 방에 있으면 심장이 빨라진다.</p>
+      <ul>
+        <li>시각이 2의 배수이고 4의 배수가 아니면, 플레이어 쪽 복도로 한 칸 움직인다.</li>
+        <li>시각이 4의 배수이면, 그 복도에 붙은 방 중 가까운 곳으로 들어오려 한다. 방이 버티면 복도에 남는다.</li>
+        <li>들어온 방에 시간 5를 연속으로 머물면 피해 99.</li>
+      </ul>
+      <table>
+        <tr><td>정원 20%</td><td>전기실 3%</td><td>보급소 1 15%</td></tr>
+        <tr><td>보급소 2 10%</td><td>지도 20%</td><td>원자로 0%</td></tr>
+        <tr><td>CCTV 25%</td><td>침실 10%</td><td>옥상 50%</td></tr>
+        <tr><td colspan="3">식당은 지정된 확률이 없어 항상 들어온다.</td></tr>
+      </table>
+      <h3>시설</h3>
+      <ul>
+        <li>시각이 7의 배수이면 정전. 전기실에서 전선을 연결하면 복구된다.</li>
+        <li>시각이 9의 배수이면 원자로가 불안정해지고, 시간 9 안에 카드를 긁어야 한다. 실패하면 폭파.</li>
+        <li>CCTV실에서 1부터 10을 보면 그 방의 괴물 여부를 알 수 있다. 다시 보려면 15초.</li>
+        <li>보급소에서 물건을 받는다. 한 곳당 20초마다 한 번. 가방은 4칸, Q로 버린다.</li>
+      </ul>
+      <h3>물건</h3>
+      <ul>
+        <li>빵: 체력 50.</li>
+        <li>자극제: 체력 10을 잃고 15초 동안 속도 50% 증가.</li>
+        <li>손전등: 내구도 100. 0.1초마다 3이 닳는다. 괴물을 비춘다.</li>
+        <li>CCTV 리모컨: 내구도 3. CCTV와 같이 방을 본다.</li>
+        <li>십자가: 죽음을 한 번 막는다. 쓰면 괴물 위치가 흩어진다.</li>
+        <li>시계: 시각을 보여 주고, 시간 30이 지나면 부서진다.</li>
+        <li>붕대: 멀티에서만. 같은 방의 쓰러진 사람을 살린다.</li>
+      </ul>
+      <p>체력 최대는 100이다.</p>
+      <button id="manual-close" class="ghost" type="button">닫기</button>
+    </div>
+  </section>
+
+  <section id="firebase-help" class="screen dim hidden">
+    <div class="panel scroll">
+      <p class="kicker">MULTIPLAYER</p>
+      <h2>Firebase가 필요합니다</h2>
+      <p>싱글플레이는 지금 바로 됩니다. 멀티는 방 대기와 위치 동기화를 위해 Firebase Realtime Database 설정이 필요합니다.</p>
+      <ol>
+        <li>Firebase 콘솔에서 프로젝트를 만듭니다.</li>
+        <li>Realtime Database를 만들고 테스트 모드로 둡니다.</li>
+        <li>웹 앱을 추가한 뒤 설정을 <code>js/firebase-config.js</code>에 붙여 넣습니다. <code>databaseURL</code>이 있어야 합니다.</li>
+        <li>규칙을 아래처럼 두고, 파일을 다시 배포합니다.</li>
+      </ol>
+      <pre>{
+  "rules": {
+    "rooms": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}</pre>
+      <p>이 규칙은 친구끼리 시험하기 위한 것입니다. 주소가 공개되면 누구나 방 데이터를 쓸 수 있습니다.</p>
+      <button id="firebase-close" class="ghost" type="button">닫기</button>
+    </div>
+  </section>
+
+  <section id="multi-setup" class="screen dim hidden">
+    <div class="panel">
+      <p class="kicker">WAITING</p>
+      <h2>멀티플레이</h2>
+      <p class="lead">어몽어스처럼 대기실에 모입니다. 2명 이상이 되면 5초 뒤 시설로 들어갑니다.</p>
+      <label class="field">방 코드
+        <input id="room-code" type="text" maxlength="4" placeholder="참여할 코드" />
+      </label>
+      <div class="row">
+        <button id="btn-create" class="solid" type="button">방 만들기</button>
+        <button id="btn-join" class="choice" type="button">참여</button>
+        <button id="multi-back" class="ghost" type="button">뒤로</button>
+      </div>
+      <p id="multi-error" class="error"></p>
+    </div>
+  </section>
+
+  <section id="lobby" class="screen hidden">
+    <div class="panel">
+      <p class="kicker">DROPSHIP</p>
+      <h2 id="lobby-code">----</h2>
+      <p id="lobby-status">대기 중</p>
+      <ul id="lobby-list"></ul>
+      <p class="lead">대기실 안을 WASD로 걸을 수 있습니다.</p>
+      <button id="lobby-leave" class="ghost" type="button">나가기</button>
+    </div>
+  </section>
+
+  <section id="pause" class="screen dim hidden">
+    <div class="panel">
+      <h2>일시정지</h2>
+      <p class="lead">싱글에서는 시간이 멈춥니다.</p>
+      <div class="row">
+        <button id="resume" class="solid" type="button">계속</button>
+        <button id="pause-menu" class="ghost" type="button">메뉴로</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="death" class="screen dim hidden">
+    <div class="panel">
+      <p class="kicker">SIGNAL LOST</p>
+      <h2 id="death-title">어둠에 남았다</h2>
+      <p id="death-sub"></p>
+      <div class="row">
+        <button id="retry" class="solid" type="button">다시 하기</button>
+        <button id="death-menu" class="ghost" type="button">메뉴로</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="downed" class="screen dim hidden">
+    <div class="panel">
+      <h2>쓰러졌다</h2>
+      <p class="lead">같은 방의 동료가 붕대를 쓰면 일어납니다.</p>
+      <button id="downed-menu" class="ghost" type="button">메뉴로</button>
+    </div>
+  </section>
+
+  <section id="map-overlay" class="screen dim hidden">
+    <div class="panel">
+      <p class="kicker">MAP ROOM</p>
+      <h2>시설 도면</h2>
+      <canvas id="map-canvas" width="680" height="420"></canvas>
+      <div class="row" style="margin-top:12px">
+        <button id="map-close" class="ghost" type="button">닫기</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="cctv-overlay" class="screen dim hidden">
+    <div class="panel">
+      <p class="kicker">CCTV</p>
+      <h2>카메라</h2>
+      <p id="cctv-cool" class="lead"></p>
+      <div id="cctv-grid"></div>
+      <div id="cctv-result"></div>
+      <button id="cctv-close" class="ghost" type="button">닫기</button>
+    </div>
+  </section>
+
+  <section id="wire-overlay" class="screen dim hidden">
+    <div class="panel">
+      <p class="kicker">ELECTRICAL</p>
+      <h2>전선 연결</h2>
+      <p id="wire-msg">같은 색을 이으세요.</p>
+      <div id="wire-board"></div>
+      <button id="wire-close" class="ghost" type="button">닫기</button>
+    </div>
+  </section>
+
+  <section id="card-overlay" class="screen dim hidden">
+    <div class="panel">
+      <p class="kicker">REACTOR</p>
+      <h2>카드 인증</h2>
+      <p id="card-msg">카드를 오른쪽 끝까지 일정한 속도로 긁으세요.</p>
+      <div id="swipe-track"><div id="swipe-card">CARD</div></div>
+      <button id="card-close" class="ghost" type="button">닫기</button>
+    </div>
+  </section>
+
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>
