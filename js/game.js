@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=16";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=16";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=16";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=16";
-import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=16";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=16";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=17";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=17";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=17";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=17";
+import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=17";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=17";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -334,7 +334,7 @@ function consume(snap) {
   for (const id of Object.keys(state.localExp)) {
     if (!seen.has(Number(id)) && !seen.has(id)) state.localExp[id] = 0;
   }
-  if (snap.t % 7 === 0 && snap.power === false && state.seen.blackout !== snap.t) {
+  if (snap.t % 17 === 0 && snap.power === false && state.seen.blackout !== snap.t) {
     state.seen.blackout = snap.t;
     toast("정전이다.");
     playBlackout();
@@ -924,7 +924,7 @@ function updateHud(lamp) {
   else if (!sim.power) alarm = "정전 — 전기실에서 전선을 연결하라";
   $("alarm-line").textContent = alarm;
   const d = danger();
-  $("warn-line").textContent = d >= 3 ? "이 방에 더 머물면 안 된다." : d > 0 ? "같은 방에 무언가가 있다." : "";
+  $("warn-line").textContent = !state.admin ? "" : d >= 3 ? "이 방에 더 머물면 안 된다." : d > 0 ? "같은 방에 무언가가 있다." : "";
   $("hurt").style.background = d > 0 ? `rgba(120,0,0,${0.08 + d * 0.06})` : "rgba(140,0,0,0)";
   const mood = `${d}|${sim.reactor ? 1 : 0}|${sim.power ? 0 : 1}`;
   if (mood !== state.clockMood) {
