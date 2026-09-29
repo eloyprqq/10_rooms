@@ -1,4 +1,4 @@
-import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=23";
+import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=24";
 
 export { isFirebaseConfigured };
 
@@ -121,6 +121,47 @@ export function signal(data) {
 export function sendRevive(targetId) {
   if (!db || !roomCode) return;
   api.update(api.ref(db, `rooms/${roomCode}/players/${targetId}`), { reviveAt: Date.now() }).catch(() => {});
+}
+
+function lootPayload(item) {
+  const data = { type: item.type, x: Math.round(item.x), y: Math.round(item.y) };
+  if (item.dura != null) data.dura = item.dura;
+  if (item.left != null) data.left = item.left;
+  return data;
+}
+
+export function replaceLoot(items) {
+  if (!db || !roomCode) return Promise.resolve();
+  const loot = {};
+  for (const item of items) loot[String(item.uid)] = lootPayload(item);
+  return api.set(api.ref(db, `rooms/${roomCode}/loot`), loot).catch(() => {});
+}
+
+export function placeLoot(item) {
+  if (!db || !roomCode) return Promise.resolve();
+  return api.set(api.ref(db, `rooms/${roomCode}/loot/${item.uid}`), lootPayload(item));
+}
+
+export function patchLoot(uid, data) {
+  if (!db || !roomCode) return Promise.resolve();
+  return api.update(api.ref(db, `rooms/${roomCode}/loot/${uid}`), data).catch(() => {});
+}
+
+export function removeLoot(uid) {
+  if (!db || !roomCode) return Promise.resolve();
+  return api.remove(api.ref(db, `rooms/${roomCode}/loot/${uid}`)).catch(() => {});
+}
+
+export async function claimLoot(uid) {
+  if (!db || !roomCode) return false;
+  const ref = api.ref(db, `rooms/${roomCode}/loot/${uid}`);
+  const snap = await api.get(ref);
+  if (!snap.exists()) return false;
+  const result = await api.runTransaction(ref, (cur) => {
+    if (cur == null) return;
+    return null;
+  });
+  return result.committed;
 }
 
 export async function leaveRoom() {

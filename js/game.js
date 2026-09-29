@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD } from "./map.js?v=23";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=23";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=23";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=23";
-import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=23";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=23";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD } from "./map.js?v=24";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=24";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=24";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=24";
+import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=24";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=24";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -68,6 +68,9 @@ let inv = [];
 let ground = [];
 let sim = null;
 let uid = 1;
+const claiming = new Set();
+const takenLoot = new Set();
+const pendingDrop = new Set();
 let last = performance.now();
 let clockOn = false;
 let timeAcc = 0;
@@ -116,8 +119,13 @@ function placeLabel() {
   return "시설";
 }
 
+function nextUid() {
+  uid += 1;
+  return state.multi ? `${selfId()}-${uid}` : String(uid);
+}
+
 function makeItem(type, extra = {}) {
-  const item = { uid: uid++, type, ...extra };
+  const item = { uid: nextUid(), type, ...extra };
   if (type === "flashlight" && item.dura == null) item.dura = 100;
   if (type === "cctv" && item.dura == null) item.dura = 3;
   if (type === "clock" && item.left == null) item.left = 30;
@@ -312,13 +320,56 @@ function publish() {
 }
 
 function purgeClocks() {
-  const before = inv.length + ground.length;
+  const before = inv.length + (state.multi ? 0 : ground.length);
   inv = inv.filter((it) => it.type !== "clock" || it.left > 0);
-  ground = ground.filter((it) => it.type !== "clock" || it.left > 0);
-  if (inv.length + ground.length !== before) {
+  if (!state.multi) ground = ground.filter((it) => it.type !== "clock" || it.left > 0);
+  if (inv.length + (state.multi ? 0 : ground.length) !== before) {
     toast("시계가 부서졌다.");
     state.dirty = true;
   }
+}
+
+function starterLoot() {
+  const s2 = roomCenter("supply2");
+  const s1 = roomCenter("supply1");
+  return [
+    { ...makeItem("flashlight"), uid: "start-flashlight", x: s2.x + 36, y: s2.y + 20 },
+    { ...makeItem("bread"), uid: "start-bread", x: s1.x - 30, y: s1.y + 16 },
+  ];
+}
+
+function syncGround(loot) {
+  const next = loot
+    ? Object.entries(loot).map(([id, raw]) => {
+        const item = { uid: id, type: raw.type, x: raw.x || 0, y: raw.y || 0 };
+        if (raw.dura != null) item.dura = raw.dura;
+        if (raw.left != null) item.left = raw.left;
+        return item;
+      })
+    : [];
+  const ids = new Set(next.map((it) => it.uid));
+  for (const id of [...takenLoot]) if (!loot || loot[id] == null) takenLoot.delete(id);
+  for (const id of [...pendingDrop]) if (ids.has(id)) pendingDrop.delete(id);
+  const visible = next.filter((it) => !takenLoot.has(it.uid) && !claiming.has(it.uid));
+  for (const it of ground) {
+    if (pendingDrop.has(it.uid) && !ids.has(it.uid)) visible.push(it);
+  }
+  ground = visible;
+}
+
+function decaySharedClocks() {
+  const gone = [];
+  for (const it of ground) {
+    if (it.type !== "clock") continue;
+    it.left -= 1;
+    if (it.left <= 0) {
+      gone.push(it.uid);
+      removeLoot(it.uid);
+    } else patchLoot(it.uid, { left: it.left });
+  }
+  if (!gone.length) return;
+  ground = ground.filter((it) => !gone.includes(it.uid));
+  toast("시계가 부서졌다.");
 }
 
 function consume(snap) {
@@ -329,10 +380,16 @@ function consume(snap) {
   sim.reactor = snap.reactor;
   sim.meltdown = !!snap.meltdown;
   state.applied = snap.t;
-  for (const it of inv.concat(ground)) {
+  for (const it of inv) {
     if (it.type === "clock") it.left -= 1;
   }
+  if (!state.multi) {
+    for (const it of ground) {
+      if (it.type === "clock") it.left -= 1;
+    }
+  }
   purgeClocks();
+  if (state.multi && amHost()) decaySharedClocks();
   const room = playerRoom();
   const seen = new Set();
   for (const raw of snap.monsters) {
@@ -409,6 +466,9 @@ function resetRun(difficulty) {
   hide("downed");
   inv = [];
   ground = [];
+  claiming.clear();
+  takenLoot.clear();
+  pendingDrop.clear();
   selected = 0;
   state.localExp = {};
   state.supplyCd = {};
@@ -429,10 +489,12 @@ function resetRun(difficulty) {
   player.y = spawn.y;
   sim = createMatch(difficulty);
   ghosts = new Map();
-  const s2 = roomCenter("supply2");
-  const s1 = roomCenter("supply1");
-  ground.push({ ...makeItem("flashlight"), x: s2.x + 36, y: s2.y + 20 });
-  ground.push({ ...makeItem("bread"), x: s1.x - 30, y: s1.y + 16 });
+  if (!state.multi) {
+    const s2 = roomCenter("supply2");
+    const s1 = roomCenter("supply1");
+    ground.push({ ...makeItem("flashlight"), x: s2.x + 36, y: s2.y + 20 });
+    ground.push({ ...makeItem("bread"), x: s1.x - 30, y: s1.y + 16 });
+  }
   state.dirty = true;
 }
 
@@ -470,6 +532,8 @@ async function beginMatchLocal(world) {
   hide("multi-setup");
   show("hud");
   if (state.admin) toast("관리자 권한. 시각과 괴물 위치가 보인다.");
+  if (state.multi && amHost() && !world) await replaceLoot(starterLoot());
+  if (state.multi) syncGround(state.roomData?.loot);
   if (state.multi && amHost()) await publish();
   armTimer();
 }
@@ -636,6 +700,61 @@ function updateTaskbar() {
   }
 }
 
+function nearestGround() {
+  let best = null;
+  let bestD = 80;
+  for (const g of ground) {
+    const d = Math.hypot(g.x - player.x, g.y - player.y);
+    if (d < bestD) {
+      bestD = d;
+      best = g;
+    }
+  }
+  return best;
+}
+
+function takeGround(best) {
+  if (!best) return false;
+  if (inv.length >= 4) {
+    toast("가방이 가득 찼다.");
+    return true;
+  }
+  if (!state.multi) {
+    ground = ground.filter((g) => g !== best);
+    inv.push(best);
+    state.dirty = true;
+    playPickup();
+    return true;
+  }
+  if (claiming.has(best.uid)) return true;
+  claiming.add(best.uid);
+  const picked = { ...best };
+  claimLoot(best.uid)
+    .then((ok) => {
+      claiming.delete(best.uid);
+      if (!ok) {
+        toast("이미 가져갔다.");
+        return;
+      }
+      takenLoot.add(picked.uid);
+      ground = ground.filter((g) => g.uid !== picked.uid);
+      if (inv.length >= 4) {
+        takenLoot.delete(picked.uid);
+        placeLoot(picked).catch(() => {});
+        toast("가방이 가득 찼다.");
+        return;
+      }
+      inv.push(picked);
+      state.dirty = true;
+      playPickup();
+    })
+    .catch(() => {
+      claiming.delete(best.uid);
+      toast("줍지 못했다.");
+    });
+  return true;
+}
+
 function interact() {
   if (state.phase !== "play" || !player.alive || busy()) return;
   const loc = locate(player.x, player.y);
@@ -650,6 +769,11 @@ function interact() {
       openCard();
       return;
     }
+  }
+  if (takeGround(nearestGround())) return;
+  if (loc.kind === "room") {
+    const c = roomCenter(loc.id);
+    const near = Math.hypot(player.x - c.x, player.y - c.y) < 200;
     if (near && openRoomTasks(loc.id, missionProgress())) return;
     if (near && loc.id === "cctv") {
       openCctv("room", null);
@@ -672,25 +796,6 @@ function interact() {
       drawMap();
       return;
     }
-  }
-  let best = null;
-  let bestD = 80;
-  for (const g of ground) {
-    const d = Math.hypot(g.x - player.x, g.y - player.y);
-    if (d < bestD) {
-      bestD = d;
-      best = g;
-    }
-  }
-  if (best) {
-    if (inv.length >= 4) {
-      toast("가방이 가득 찼다.");
-      return;
-    }
-    ground = ground.filter((g) => g !== best);
-    inv.push(best);
-    state.dirty = true;
-    playPickup();
   }
 }
 
@@ -782,11 +887,25 @@ function useSelected() {
 
 function dropSelected() {
   const item = inv[selected];
-  if (!item) return;
+  if (!item || (state.multi && !player.alive)) return;
   const copy = { ...item, x: player.x + Math.cos(player.facing) * 52, y: player.y + Math.sin(player.facing) * 52 };
   removeItem(item);
+  if (!state.multi) {
+    ground.push(copy);
+    toast("바닥에 내려놓았다.");
+    return;
+  }
+  pendingDrop.add(copy.uid);
   ground.push(copy);
-  toast("바닥에 내려놓았다.");
+  placeLoot(copy)
+    .then(() => toast("바닥에 내려놓았다."))
+    .catch(() => {
+      pendingDrop.delete(copy.uid);
+      ground = ground.filter((g) => g.uid !== copy.uid);
+      if (inv.length < 4) inv.push(item);
+      state.dirty = true;
+      toast("내려놓지 못했다.");
+    });
 }
 
 function onRoom(data) {
@@ -799,6 +918,7 @@ function onRoom(data) {
     return;
   }
   if (data.phase === "playing" && state.phase === "play") {
+    syncGround(data.loot);
     if (!amHost()) catchUp(data.world);
     if (amHost() && sim) {
       if (data.scatterAt && data.scatterAt !== state.seen.scatter) {
