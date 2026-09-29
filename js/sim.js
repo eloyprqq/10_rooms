@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=20";
+} from "./map.js?v=21";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -60,8 +60,24 @@ export function monsterCount(difficulty) {
   return COUNTS[difficulty] || 1;
 }
 
-function flee(monster, rng) {
-  const c = CORRIDORS[Math.floor(rng() * CORRIDORS.length)];
+function placeKey(place) {
+  return `${place.type}:${place.id}`;
+}
+
+function takenByOthers(monsters, self) {
+  const used = new Set();
+  for (const monster of monsters) {
+    if (monster === self) continue;
+    used.add(placeKey(monster.place));
+  }
+  return used;
+}
+
+function flee(monster, rng, monsters = []) {
+  const used = takenByOthers(monsters, monster);
+  const free = CORRIDORS.filter((c) => !used.has(`corridor:${c.id}`));
+  const pool = free.length ? free : CORRIDORS;
+  const c = pool[Math.floor(rng() * pool.length)];
   monster.place = { type: "corridor", id: c.id };
   monster.lockUntil = 0;
   monster.exposure = {};
@@ -82,10 +98,11 @@ function nearestLiving(monster, bodies) {
   return best || bodies[0];
 }
 
-function stepToCorridor(monster, body, t, events) {
+function stepToCorridor(monster, body, t, events, monsters = []) {
   if (t < monster.lockUntil) return;
   const target = targetCorridor(body);
   if (!target) return;
+  const used = takenByOthers(monsters, monster);
 
   const rank = (corridor) => {
     const p = corridorAnchor(corridor.id);
@@ -93,10 +110,10 @@ function stepToCorridor(monster, body, t, events) {
   };
 
   if (monster.place.type === "room") {
-    const options = adjacentCorridors(monster.place.id);
-    let best = options[0];
+    let best = null;
     let bestRank = Infinity;
-    for (const c of options) {
+    for (const c of adjacentCorridors(monster.place.id)) {
+      if (used.has(`corridor:${c.id}`)) continue;
       const score = rank(c);
       if (score < bestRank) {
         bestRank = score;
@@ -115,6 +132,7 @@ function stepToCorridor(monster, body, t, events) {
   let best = null;
   let bestRank = curRank;
   for (const c of neighborCorridors(monster.place.id)) {
+    if (used.has(`corridor:${c.id}`)) continue;
     const score = rank(c);
     if (score < bestRank) {
       bestRank = score;
@@ -127,10 +145,11 @@ function stepToCorridor(monster, body, t, events) {
   }
 }
 
-function tryEnterRoom(monster, body, t, rng, events) {
+function tryEnterRoom(monster, body, t, rng, events, monsters = []) {
   if (t < monster.lockUntil) return;
   if (monster.place.type !== "corridor") return;
   const corr = corridorById(monster.place.id);
+  const used = takenByOthers(monsters, monster);
   const options = [corr.a, corr.b].sort((a, b) => {
     const pa = anchorOf({ type: "room", id: a });
     const pb = anchorOf({ type: "room", id: b });
@@ -138,7 +157,8 @@ function tryEnterRoom(monster, body, t, rng, events) {
     const db = (pb.x - body.x) ** 2 + (pb.y - body.y) ** 2;
     return da - db;
   });
-  const roomId = options[0];
+  const roomId = options.find((id) => !used.has(`room:${id}`));
+  if (!roomId) return;
   const room = roomById(roomId);
   if (rng() < room.skip) {
     events.push({ t, type: "skip", monsterId: monster.id, room: roomId });
@@ -214,8 +234,8 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
       for (const monster of state.monsters) {
         const body = nearestLiving(monster, focusPool);
         if (!body) continue;
-        if (t % 4 === 0) tryEnterRoom(monster, body, t, rng, []);
-        else if (t % 2 === 0) stepToCorridor(monster, body, t, []);
+        if (t % 4 === 0) tryEnterRoom(monster, body, t, rng, [], state.monsters);
+        else if (t % 2 === 0) stepToCorridor(monster, body, t, [], state.monsters);
       }
     }
 
@@ -239,7 +259,7 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
           for (const body of caught) {
             hits.push({ playerId: body.id, monsterId: monster.id, amount: 99, t });
           }
-          flee(monster, rng);
+          flee(monster, rng, state.monsters);
         }
       }
     }
@@ -255,16 +275,13 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
 }
 
 export function scatterMonsters(state, rng = Math.random) {
-  const used = new Set();
-  for (const monster of state.monsters) {
-    let c = CORRIDORS[Math.floor(rng() * CORRIDORS.length)];
-    let guard = 0;
-    while (used.has(c.id) && guard++ < 20) c = CORRIDORS[Math.floor(rng() * CORRIDORS.length)];
-    used.add(c.id);
+  const open = shuffle(CORRIDORS, rng);
+  state.monsters.forEach((monster, i) => {
+    const c = open[i % open.length];
     monster.place = { type: "corridor", id: c.id };
     monster.lockUntil = 0;
     monster.exposure = {};
-  }
+  });
 }
 
 export function applyMonsterView(state, list) {
