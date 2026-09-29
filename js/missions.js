@@ -1,23 +1,30 @@
-export const TASKS = [
-  { id: "garden", name: "정원", title: "화분에 물 주기" },
-  { id: "electrical", name: "전기실", title: "차단기 맞추기" },
-  { id: "supply2", name: "보급소 2", title: "상자 색 맞추기" },
-  { id: "map", name: "지도", title: "좌표 찍기" },
-  { id: "cafeteria", name: "식당", title: "접시 치우기" },
-  { id: "supply1", name: "보급소 1", title: "재고 맞추기" },
-  { id: "reactor", name: "원자로", title: "출력 맞추기" },
-  { id: "cctv", name: "CCTV", title: "이상 화면 찾기" },
-  { id: "bedroom", name: "침실", title: "이불 개기" },
-  { id: "rooftop", name: "옥상", title: "안테나 돌리기" },
-];
+const ROOM_NAME = {
+  garden: "정원",
+  electrical: "전기실",
+  supply2: "보급소 2",
+  map: "지도",
+  cafeteria: "식당",
+  supply1: "보급소 1",
+  reactor: "원자로",
+  cctv: "CCTV",
+  bedroom: "침실",
+  rooftop: "옥상",
+};
 
-const COLORS = [
-  { name: "빨강", hex: "#d64545" },
-  { name: "파랑", hex: "#3d74d6" },
-  { name: "노랑", hex: "#e0b341" },
+export const DATA_ROOMS = ["garden", "supply2", "map", "cafeteria", "supply1", "cctv", "bedroom", "rooftop"];
+
+export const TASKS = [
+  { id: "meteor", name: "옥상", title: "운석 파괴" },
+  { id: "garden-trash", name: "정원", title: "쓰레기통 비우기" },
+  { id: "shields", name: "CCTV", title: "보호막 가동" },
+  { id: "oxygen-bedroom", name: "침실", title: "산소통 비우기" },
+  { id: "oxygen-supply1", name: "보급소 1", title: "산소통 비우기" },
+  { id: "cafeteria", name: "식당", title: "쓰레기통 또는 루비" },
+  ...DATA_ROOMS.map((id) => ({ id: `data:${id}`, name: ROOM_NAME[id], title: "데이터 업로드" })),
 ];
 
 let onDone = () => {};
+let onDownload = () => {};
 let open = false;
 let token = 0;
 let raf = 0;
@@ -26,20 +33,36 @@ function $(id) {
   return document.getElementById(id);
 }
 
-function taskById(id) {
-  return TASKS.find((task) => task.id === id);
+function has(list, id) {
+  return (list || []).includes(id);
 }
 
-function btn(label) {
-  const el = document.createElement("button");
-  el.type = "button";
-  el.className = "mission-btn";
-  el.textContent = label;
-  return el;
+export function actionsFor(roomId, progress) {
+  const done = progress?.done || [];
+  const got = progress?.got || [];
+  const actions = [];
+  if (DATA_ROOMS.includes(roomId) && !has(got, roomId) && !has(done, `data:${roomId}`)) {
+    actions.push({ kind: "download", label: "데이터 다운로드" });
+  }
+  if (roomId === "garden" && !has(done, "garden-trash")) actions.push({ kind: "trash", label: "쓰레기통 비우기" });
+  if (roomId === "rooftop" && !has(done, "meteor")) actions.push({ kind: "meteor", label: "운석 파괴" });
+  if (roomId === "cctv" && !has(done, "shields")) actions.push({ kind: "shields", label: "보호막 가동" });
+  if (roomId === "bedroom" && !has(done, "oxygen-bedroom")) actions.push({ kind: "oxygen", label: "산소통 비우기" });
+  if (roomId === "supply1" && !has(done, "oxygen-supply1")) actions.push({ kind: "oxygen", label: "산소통 비우기" });
+  if (roomId === "cafeteria" && !has(done, "cafeteria")) {
+    actions.push({ kind: "trash-link", label: "쓰레기통 비우기" });
+    actions.push({ kind: "ruby", label: "루비 보관" });
+  }
+  if (roomId === "electrical") {
+    const pending = DATA_ROOMS.filter((id) => has(got, id) && !has(done, `data:${id}`));
+    if (pending.length) actions.push({ kind: "upload", label: "데이터 업로드", pending });
+  }
+  return actions;
 }
 
-export function initMissions(done) {
-  onDone = done;
+export function initMissions(handlers) {
+  onDone = handlers.onDone;
+  onDownload = handlers.onDownload;
   $("mission-close").addEventListener("click", closeMission);
 }
 
@@ -56,308 +79,402 @@ export function closeMission() {
   $("mission-body").innerHTML = "";
 }
 
-export function openMission(roomId) {
-  const task = taskById(roomId);
-  if (!task) return;
+export function openRoomTasks(roomId, progress) {
+  const actions = actionsFor(roomId, progress);
+  if (!actions.length) return false;
+  begin(ROOM_NAME[roomId] || roomId);
+  if (actions.length === 1) run(actions[0], roomId);
+  else menu(actions, roomId);
+  return true;
+}
+
+function begin(kicker) {
   closeMission();
   open = true;
-  const mine = token;
-  $("mission-kicker").textContent = task.name;
-  $("mission-title").textContent = task.title;
+  $("mission-kicker").textContent = kicker;
+  $("mission-title").textContent = "할 일";
   $("mission-msg").textContent = "";
   $("mission-overlay").classList.remove("hidden");
+}
+
+function menu(actions, roomId) {
+  const body = $("mission-body");
+  $("mission-msg").textContent = "할 일을 고르세요.";
+  const row = document.createElement("div");
+  row.className = "mission-row";
+  for (const action of actions) {
+    const el = button(action.label);
+    el.addEventListener("click", () => {
+      body.innerHTML = "";
+      run(action, roomId);
+    });
+    row.appendChild(el);
+  }
+  body.appendChild(row);
+}
+
+function run(action, roomId) {
+  const mine = token;
   const body = $("mission-body");
   const msg = $("mission-msg");
-  const succeed = () => {
+  $("mission-title").textContent = action.label;
+  const succeed = (taskId) => {
     if (mine !== token || !open) return;
     msg.textContent = "완료.";
     const stamp = token;
     setTimeout(() => {
       if (stamp !== token) return;
       closeMission();
-      onDone(roomId);
-    }, 320);
+      onDone(taskId);
+    }, 1100);
   };
-  build(roomId, body, msg, succeed, mine);
+  if (action.kind === "download") return download(roomId, body, msg, mine);
+  if (action.kind === "upload") return upload(action.pending, body, msg, mine);
+  if (action.kind === "meteor") return meteors(body, msg, succeed, mine);
+  if (action.kind === "trash") return garbage(body, msg, succeed, false);
+  if (action.kind === "trash-link") return garbage(body, msg, succeed, true);
+  if (action.kind === "ruby") return ruby(body, msg, succeed);
+  if (action.kind === "shields") return shields(body, msg, succeed);
+  if (action.kind === "oxygen") return oxygen(body, msg, succeed, roomId === "bedroom" ? "oxygen-bedroom" : "oxygen-supply1");
 }
 
-function build(roomId, body, msg, succeed, mine) {
-  if (roomId === "garden") return pots(body, msg, succeed);
-  if (roomId === "electrical") return switches(body, msg, succeed);
-  if (roomId === "supply2") return crates(body, msg, succeed);
-  if (roomId === "map") return coords(body, msg, succeed);
-  if (roomId === "cafeteria") return plates(body, msg, succeed);
-  if (roomId === "supply1") return stock(body, msg, succeed);
-  if (roomId === "reactor") return gauge(body, msg, succeed, mine);
-  if (roomId === "cctv") return cameras(body, msg, succeed);
-  if (roomId === "bedroom") return beds(body, msg, succeed);
-  if (roomId === "rooftop") return antenna(body, msg, succeed);
+function button(label) {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "mission-btn";
+  el.textContent = label;
+  return el;
 }
 
-function pots(body, msg, succeed) {
-  msg.textContent = "마른 화분 세 개에 물을 주세요.";
-  const row = document.createElement("div");
-  row.className = "mission-row";
-  let left = 3;
-  for (let i = 0; i < 3; i++) {
-    const el = btn("마른 화분");
-    el.addEventListener("click", () => {
-      if (el.disabled) return;
-      el.disabled = true;
-      el.classList.add("good");
-      el.textContent = "물 줌";
-      left -= 1;
-      if (left === 0) succeed();
-    });
-    row.appendChild(el);
-  }
-  body.appendChild(row);
-}
-
-function switches(body, msg, succeed) {
-  const target = [0, 1, 2, 3].map(() => Math.random() < 0.5);
-  const cur = target.map((on) => !on);
-  msg.textContent = "아래 표시와 같은 상태로 맞추세요.";
-  const want = document.createElement("div");
-  want.className = "mission-row";
-  target.forEach((on) => {
-    const el = btn(on ? "켜짐" : "꺼짐");
-    el.disabled = true;
-    el.classList.toggle("good", on);
-    want.appendChild(el);
-  });
-  const row = document.createElement("div");
-  row.className = "mission-row";
-  const paint = () => {
-    [...row.children].forEach((el, i) => {
-      el.textContent = cur[i] ? "켜짐" : "꺼짐";
-      el.classList.toggle("good", cur[i]);
-    });
-    if (cur.every((on, i) => on === target[i])) succeed();
+function download(roomId, body, msg, mine) {
+  msg.textContent = "받는 중입니다.";
+  const bar = meter(body);
+  const started = performance.now();
+  const tick = (now) => {
+    if (mine !== token) return;
+    const p = Math.min(1, (now - started) / 2200);
+    bar.style.width = `${p * 100}%`;
+    if (p < 1) {
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+    msg.textContent = "받았다. 전기실에서 올려라.";
+    const stamp = token;
+    setTimeout(() => {
+      if (stamp !== token) return;
+      closeMission();
+      onDownload(roomId);
+    }, 400);
   };
-  cur.forEach((on, i) => {
-    const el = btn(on ? "켜짐" : "꺼짐");
-    el.classList.toggle("good", on);
-    el.addEventListener("click", () => {
-      cur[i] = !cur[i];
-      paint();
-    });
-    row.appendChild(el);
-  });
-  body.appendChild(want);
-  body.appendChild(row);
+  raf = requestAnimationFrame(tick);
 }
 
-function crates(body, msg, succeed) {
-  msg.textContent = "상자 색을 이름과 같게 누르세요.";
-  const row = document.createElement("div");
-  row.className = "mission-row";
-  const state = [0, 1, 2].map((i) => ({ target: i, cur: (i + 1) % 3 }));
-  const paint = () => {
-    [...row.children].forEach((el, i) => {
-      el.style.background = COLORS[state[i].cur].hex;
-      el.textContent = COLORS[state[i].target].name;
-    });
-    if (state.every((box) => box.cur === box.target)) succeed();
+function upload(pending, body, msg, mine) {
+  msg.textContent = `${pending.length}개 올리는 중.`;
+  const bar = meter(body);
+  const list = document.createElement("p");
+  list.className = "mission-note";
+  list.textContent = pending.map((id) => ROOM_NAME[id]).join(", ");
+  body.appendChild(list);
+  const started = performance.now();
+  const total = pending.length * 900;
+  let sent = 0;
+  const tick = (now) => {
+    if (mine !== token) return;
+    const elapsed = now - started;
+    bar.style.width = `${Math.min(100, (elapsed / total) * 100)}%`;
+    const due = Math.min(pending.length, Math.floor(elapsed / 900));
+    while (sent < due) {
+      onDone(`data:${pending[sent]}`);
+      sent += 1;
+    }
+    if (elapsed < total) {
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+    onDone(pending.map((id) => `data:${id}`).join(","));
+    msg.textContent = "업로드 완료.";
+    const stamp = token;
+    setTimeout(() => {
+      if (stamp !== token) return;
+      closeMission();
+    }, 400);
   };
-  state.forEach((box, i) => {
-    const el = btn(COLORS[box.target].name);
-    el.addEventListener("click", () => {
-      state[i].cur = (state[i].cur + 1) % 3;
-      paint();
-    });
-    row.appendChild(el);
-  });
-  body.appendChild(row);
-  paint();
+  raf = requestAnimationFrame(tick);
 }
 
-function coords(body, msg, succeed) {
-  const order = [];
-  while (order.length < 3) {
-    const n = 1 + Math.floor(Math.random() * 10);
-    if (!order.includes(n)) order.push(n);
-  }
-  let step = 0;
-  const say = () => {
-    msg.textContent = `순서대로 누르세요: ${order.join(" → ")}  (지금 ${order[step]})`;
+function meter(body) {
+  const track = document.createElement("div");
+  track.className = "data-track";
+  const fill = document.createElement("div");
+  fill.className = "data-fill";
+  track.appendChild(fill);
+  body.appendChild(track);
+  return fill;
+}
+
+function meteors(body, msg, succeed, mine) {
+  msg.textContent = "운석 20개를 맞추세요.";
+  const canvas = document.createElement("canvas");
+  canvas.className = "space-view";
+  canvas.width = 560;
+  canvas.height = 320;
+  body.appendChild(canvas);
+  const ctx = canvas.getContext("2d");
+  const rocks = [];
+  let hits = 0;
+  let laser = null;
+  const spawn = () => {
+    const edge = Math.floor(Math.random() * 4);
+    const rock = { r: 14 + Math.random() * 10, spin: Math.random() * 6 };
+    if (edge === 0) {
+      rock.x = Math.random() * 560;
+      rock.y = -20;
+    } else if (edge === 1) {
+      rock.x = 580;
+      rock.y = Math.random() * 260;
+    } else if (edge === 2) {
+      rock.x = Math.random() * 560;
+      rock.y = 300;
+    } else {
+      rock.x = -20;
+      rock.y = Math.random() * 260;
+    }
+    const tx = 180 + Math.random() * 200;
+    const ty = 80 + Math.random() * 120;
+    const d = Math.hypot(tx - rock.x, ty - rock.y) || 1;
+    const speed = 0.55 + Math.random() * 0.45;
+    rock.vx = ((tx - rock.x) / d) * speed;
+    rock.vy = ((ty - rock.y) / d) * speed;
+    rocks.push(rock);
   };
-  say();
-  const row = document.createElement("div");
-  row.className = "mission-row";
-  for (let n = 1; n <= 10; n++) {
-    const el = btn(String(n));
-    el.addEventListener("click", () => {
-      if (n !== order[step]) {
-        step = 0;
-        msg.textContent = `틀렸습니다. 처음부터: ${order.join(" → ")}`;
+  const fire = (x, y) => {
+    laser = { x, y, until: performance.now() + 140 };
+  };
+  canvas.addEventListener("pointerdown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    fire(x, y);
+    for (let i = rocks.length - 1; i >= 0; i--) {
+      const rock = rocks[i];
+      if (Math.hypot(rock.x - x, rock.y - y) <= rock.r + 8) {
+        rocks.splice(i, 1);
+        hits += 1;
+        msg.textContent = `파괴 ${hits}/20`;
+        if (hits >= 20) succeed("meteor");
         return;
       }
-      step += 1;
-      if (step >= order.length) succeed();
-      else say();
-    });
-    row.appendChild(el);
-  }
-  body.appendChild(row);
-}
-
-function plates(body, msg, succeed) {
-  msg.textContent = "더러운 접시 네 개를 치우세요.";
-  const row = document.createElement("div");
-  row.className = "mission-row";
-  let left = 4;
-  for (let i = 0; i < 4; i++) {
-    const el = btn("접시");
-    el.addEventListener("click", () => {
-      if (el.disabled) return;
-      el.disabled = true;
-      el.classList.add("good");
-      el.textContent = "치움";
-      left -= 1;
-      if (left === 0) succeed();
-    });
-    row.appendChild(el);
-  }
-  body.appendChild(row);
-}
-
-function stock(body, msg, succeed) {
-  const bread = 1 + Math.floor(Math.random() * 3);
-  const bandage = 1 + Math.floor(Math.random() * 2);
-  const total = bread + bandage + 1;
-  msg.textContent = `빵 ${bread}, 붕대 ${bandage}, 손전등 1. 합계는?`;
-  const options = [total, total + 1, Math.max(1, total - 1)];
-  for (let i = options.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [options[i], options[j]] = [options[j], options[i]];
-  }
-  const row = document.createElement("div");
-  row.className = "mission-row";
-  for (const n of options) {
-    const el = btn(String(n));
-    el.addEventListener("click", () => {
-      if (n === total) succeed();
-      else msg.textContent = `아닙니다. 빵 ${bread}, 붕대 ${bandage}, 손전등 1.`;
-    });
-    row.appendChild(el);
-  }
-  body.appendChild(row);
-}
-
-function gauge(body, msg, succeed, mine) {
-  msg.textContent = "초록 구간에 들어올 때 고정을 세 번 누르세요.";
-  const track = document.createElement("div");
-  track.className = "gauge";
-  const zone = document.createElement("div");
-  zone.className = "gauge-zone";
-  const needle = document.createElement("div");
-  needle.className = "gauge-needle";
-  track.appendChild(zone);
-  track.appendChild(needle);
-  body.appendChild(track);
-  const hit = btn("고정");
-  body.appendChild(hit);
-  let pos = 8;
-  let dir = 1;
-  let hits = 0;
-  hit.addEventListener("click", () => {
-    if (pos >= 40 && pos <= 60) {
-      hits += 1;
-      msg.textContent = `맞춤 ${hits}/3`;
-      if (hits >= 3) succeed();
-    } else msg.textContent = "구간 밖입니다.";
+    }
   });
-  const tick = () => {
+  let last = performance.now();
+  const tick = (now) => {
     if (mine !== token) return;
-    pos += dir * 0.85;
-    if (pos >= 100) {
-      pos = 100;
-      dir = -1;
+    const dt = Math.min(32, now - last);
+    last = now;
+    if (rocks.length < 4 && hits < 20) spawn();
+    ctx.fillStyle = "#070b16";
+    ctx.fillRect(0, 0, 560, 320);
+    ctx.fillStyle = "#d8e4ff";
+    for (let i = 0; i < 28; i++) ctx.fillRect((i * 97) % 560, (i * 53) % 300, 2, 2);
+    for (let i = rocks.length - 1; i >= 0; i--) {
+      const rock = rocks[i];
+      rock.x += rock.vx * dt;
+      rock.y += rock.vy * dt;
+      rock.spin += 0.01;
+      if (rock.x < -40 || rock.x > 600 || rock.y < -40 || rock.y > 360) rocks.splice(i, 1);
+      else {
+        ctx.save();
+        ctx.translate(rock.x, rock.y);
+        ctx.rotate(rock.spin);
+        ctx.fillStyle = "#8d7a68";
+        ctx.beginPath();
+        ctx.moveTo(rock.r, 0);
+        ctx.lineTo(rock.r * 0.3, rock.r * 0.8);
+        ctx.lineTo(-rock.r * 0.7, rock.r * 0.4);
+        ctx.lineTo(-rock.r, -rock.r * 0.3);
+        ctx.lineTo(-rock.r * 0.2, -rock.r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
     }
-    if (pos <= 0) {
-      pos = 0;
-      dir = 1;
+    ctx.fillStyle = "#9fd0c8";
+    ctx.fillRect(262, 292, 36, 18);
+    if (laser && now < laser.until) {
+      ctx.strokeStyle = "#d8fff4";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(280, 292);
+      ctx.lineTo(laser.x, laser.y);
+      ctx.stroke();
+      ctx.fillStyle = "#eafff8";
+      ctx.beginPath();
+      ctx.arc(laser.x, laser.y, 6, 0, Math.PI * 2);
+      ctx.fill();
     }
-    needle.style.left = `${pos}%`;
     raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
 }
 
-function cameras(body, msg, succeed) {
-  let round = 0;
-  const lay = () => {
-    body.innerHTML = "";
-    const bad = Math.floor(Math.random() * 6);
-    msg.textContent = `깨진 화면을 고르세요. ${round + 1}/2`;
-    const row = document.createElement("div");
-    row.className = "mission-row";
-    for (let i = 0; i < 6; i++) {
-      const el = btn(i === bad ? "////" : "화면");
-      if (i === bad) el.classList.add("glitch");
-      el.addEventListener("click", () => {
-        if (i !== bad) {
-          msg.textContent = "그 화면은 정상이다.";
-          return;
-        }
-        round += 1;
-        if (round >= 2) succeed();
-        else lay();
-      });
-      row.appendChild(el);
-    }
-    body.appendChild(row);
+function garbage(body, msg, succeed, linked) {
+  msg.textContent = linked ? "레버를 내리면 쓰레기가 창고로 갑니다." : "레버를 아래로 내리세요.";
+  const wrap = document.createElement("div");
+  wrap.className = linked ? "garbage linked" : "garbage";
+  const track = document.createElement("div");
+  track.className = "lever-track";
+  const handle = document.createElement("div");
+  handle.className = "lever-handle";
+  track.appendChild(handle);
+  const chute = document.createElement("div");
+  chute.className = "chute";
+  const mouth = document.createElement("div");
+  mouth.className = "chute-mouth";
+  mouth.textContent = "배출구";
+  chute.appendChild(mouth);
+  wrap.appendChild(track);
+  if (linked) {
+    const pipe = document.createElement("div");
+    pipe.className = "pipe";
+    const house = document.createElement("div");
+    house.className = "warehouse";
+    house.textContent = "창고";
+    wrap.appendChild(pipe);
+    wrap.appendChild(house);
+    house.appendChild(mouth);
+  } else {
+    wrap.appendChild(chute);
+  }
+  body.appendChild(wrap);
+  let dragging = false;
+  const place = (clientY) => {
+    const rect = track.getBoundingClientRect();
+    const y = Math.max(0, Math.min(rect.height - 36, clientY - rect.top - 18));
+    handle.style.top = `${y}px`;
+    if (y > rect.height - 52) dump();
   };
-  lay();
+  let dumped = false;
+  const dump = () => {
+    if (dumped) return;
+    dumped = true;
+    dragging = false;
+    const outlet = linked ? wrap.querySelector(".warehouse") : mouth;
+    for (let i = 0; i < 6; i++) {
+      const bit = document.createElement("i");
+      bit.className = linked ? "trash-bit along" : "trash-bit";
+      bit.style.animationDelay = `${i * 0.08}s`;
+      outlet.appendChild(bit);
+    }
+    msg.textContent = linked ? "쓰레기가 창고로 빠졌다." : "쓰레기가 배출구로 나왔다.";
+    succeed(linked ? "cafeteria" : "garden-trash");
+  };
+  handle.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (dragging) place(e.clientY);
+  });
+  handle.addEventListener("pointerup", () => {
+    dragging = false;
+  });
 }
 
-function beds(body, msg, succeed) {
-  msg.textContent = "구겨진 이불 세 개를 개세요.";
+function ruby(body, msg, succeed) {
+  msg.textContent = "루비를 보관함으로 끌어 넣으세요.";
+  const stage = document.createElement("div");
+  stage.className = "ruby-stage";
+  const gem = document.createElement("div");
+  gem.className = "ruby";
+  gem.textContent = "루비";
+  const safe = document.createElement("div");
+  safe.className = "safe";
+  safe.textContent = "보관함";
+  stage.appendChild(gem);
+  stage.appendChild(safe);
+  body.appendChild(stage);
+  let dragging = false;
+  gem.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    gem.setPointerCapture(e.pointerId);
+  });
+  gem.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const rect = stage.getBoundingClientRect();
+    gem.style.left = `${e.clientX - rect.left - 28}px`;
+    gem.style.top = `${e.clientY - rect.top - 22}px`;
+  });
+  const drop = () => {
+    if (!dragging) return;
+    dragging = false;
+    const a = gem.getBoundingClientRect();
+    const b = safe.getBoundingClientRect();
+    const cx = a.left + a.width / 2;
+    const cy = a.top + a.height / 2;
+    if (cx > b.left && cx < b.right && cy > b.top && cy < b.bottom) {
+      gem.remove();
+      safe.textContent = "보관됨";
+      safe.classList.add("full");
+      msg.textContent = "루비를 넣었다.";
+      succeed("cafeteria");
+    }
+  };
+  gem.addEventListener("pointerup", drop);
+  gem.addEventListener("pointercancel", () => {
+    dragging = false;
+  });
+}
+
+function shields(body, msg, succeed) {
+  msg.textContent = "빨간 육각형을 눌러 하얗게 바꾸세요.";
+  const grid = document.createElement("div");
+  grid.className = "hex-grid";
+  let left = 8;
+  for (let i = 0; i < 8; i++) {
+    const hex = document.createElement("button");
+    hex.type = "button";
+    hex.className = "hex";
+    hex.addEventListener("click", () => {
+      if (hex.classList.contains("lit")) return;
+      hex.classList.add("lit");
+      left -= 1;
+      if (left === 0) lightHull();
+    });
+    grid.appendChild(hex);
+  }
+  const hull = document.createElement("div");
+  hull.className = "hull";
+  hull.innerHTML = "<i></i><i></i><i></i><i></i><i></i><i></i>";
+  body.appendChild(grid);
+  body.appendChild(hull);
+  const lightHull = () => {
+    msg.textContent = "함선 바깥 전등이 켜진다.";
+    hull.classList.add("on");
+    succeed("shields");
+  };
+}
+
+function oxygen(body, msg, succeed, taskId) {
+  msg.textContent = "산소통 세 개의 밸브를 여세요.";
   const row = document.createElement("div");
   row.className = "mission-row";
   let left = 3;
   for (let i = 0; i < 3; i++) {
-    const el = btn("구겨짐");
-    el.addEventListener("click", () => {
-      if (el.disabled) return;
-      el.disabled = true;
-      el.classList.add("good");
-      el.textContent = "개킴";
+    const tank = document.createElement("button");
+    tank.type = "button";
+    tank.className = "canister";
+    tank.textContent = "산소";
+    tank.addEventListener("click", () => {
+      if (tank.disabled) return;
+      tank.disabled = true;
+      tank.classList.add("vent");
+      tank.textContent = "비움";
       left -= 1;
-      if (left === 0) succeed();
+      msg.textContent = left ? "기체가 빠진다." : "산소통이 비었다.";
+      if (left === 0) succeed(taskId);
     });
-    row.appendChild(el);
+    row.appendChild(tank);
   }
   body.appendChild(row);
-}
-
-function antenna(body, msg, succeed) {
-  const target = Math.floor(Math.random() * 8) * 45;
-  let current = (target + 90 + Math.floor(Math.random() * 6) * 45) % 360;
-  msg.textContent = "노란 바늘을 흰 목표와 같은 방향으로 돌리세요.";
-  const wrap = document.createElement("div");
-  wrap.className = "antenna-wrap";
-  const goal = dial(target, "#f4f1ea");
-  const live = dial(current, "#e0b15a");
-  wrap.appendChild(goal);
-  wrap.appendChild(live);
-  const turn = btn("돌리기");
-  turn.addEventListener("click", () => {
-    current = (current + 45) % 360;
-    live.querySelector("i").style.transform = `rotate(${current}deg)`;
-    if (current === target) succeed();
-  });
-  body.appendChild(wrap);
-  body.appendChild(turn);
-}
-
-function dial(deg, color) {
-  const el = document.createElement("div");
-  el.className = "dial";
-  const mark = document.createElement("i");
-  mark.style.background = color;
-  mark.style.transform = `rotate(${deg}deg)`;
-  el.appendChild(mark);
-  return el;
 }

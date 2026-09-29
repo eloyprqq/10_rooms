@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=14";
+} from "./map.js?v=15";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -178,6 +178,8 @@ export function createMatch(difficulty, rng = Math.random) {
     reactor: null,
     meltdown: false,
     doneTasks: [],
+    dataGot: [],
+    shieldsAt: 0,
     monsters,
     history: [],
     difficulty,

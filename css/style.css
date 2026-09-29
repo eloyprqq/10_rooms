@@ -638,3 +638,220 @@ pre {
 }
 
 #lobby .panel { width: min(420px, 100%); }
+
+.mission-note { color: var(--muted); margin: 8px 0 0; }
+
+.data-track {
+  height: 22px;
+  margin: 16px 0;
+  background: #121418;
+  border: 2px solid #3a3f46;
+  overflow: hidden;
+}
+
+.data-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #2f6d86, #8fe3c2);
+}
+
+.space-view {
+  width: 100%;
+  height: 280px;
+  display: block;
+  background: #070b16;
+  border: 2px solid #243044;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.garbage {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  min-height: 240px;
+  margin: 12px 0 20px;
+}
+
+.lever-track {
+  position: relative;
+  width: 28px;
+  height: 200px;
+  background: #2a241c;
+  border: 2px solid #8d8070;
+  border-radius: 14px;
+}
+
+.lever-handle {
+  position: absolute;
+  top: 4px;
+  left: -10px;
+  width: 44px;
+  height: 32px;
+  background: #d7c4a3;
+  border: 2px solid #1b140f;
+  border-radius: 6px;
+  touch-action: none;
+  cursor: ns-resize;
+}
+
+.chute, .warehouse {
+  position: relative;
+  width: 120px;
+  height: 150px;
+  background: #1a1e24;
+  border: 2px solid #5c564c;
+  overflow: visible;
+}
+
+.chute-mouth, .warehouse {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding-bottom: 8px;
+}
+
+.warehouse { width: 130px; height: 150px; background: #241c16; }
+
+.pipe {
+  width: 90px;
+  height: 16px;
+  margin-bottom: 48px;
+  background: #3a342c;
+  border: 2px solid #8d8070;
+}
+
+.trash-bit {
+  position: absolute;
+  left: 40px;
+  bottom: 18px;
+  width: 16px;
+  height: 12px;
+  background: #6d5b45;
+  border-radius: 2px;
+  animation: dump 0.75s ease-in forwards;
+}
+
+.trash-bit.along { animation-name: dump-across; }
+
+@keyframes dump {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(78px); opacity: 0.15; }
+}
+
+@keyframes dump-across {
+  0% { transform: translate(0, 0); opacity: 1; }
+  55% { transform: translate(70px, -8px); opacity: 1; }
+  100% { transform: translate(78px, 70px); opacity: 0.2; }
+}
+
+.hex-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 6px;
+  width: 280px;
+  margin: 12px 0;
+}
+
+.hex {
+  width: 58px;
+  height: 64px;
+  border: none;
+  background: #c43838;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+.hex.lit { background: #f4f7fb; }
+
+.hull {
+  position: relative;
+  height: 74px;
+  margin-top: 8px;
+  background: #1a222c;
+  border-radius: 40px;
+  border: 2px solid #3c4a58;
+}
+
+.hull i {
+  position: absolute;
+  top: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3a4250;
+}
+
+.hull i:nth-child(1) { left: 12%; }
+.hull i:nth-child(2) { left: 28%; }
+.hull i:nth-child(3) { left: 44%; }
+.hull i:nth-child(4) { left: 58%; }
+.hull i:nth-child(5) { left: 72%; }
+.hull i:nth-child(6) { left: 86%; }
+
+.hull.on i {
+  background: #e9fff6;
+  box-shadow: 0 0 12px #9dffd8;
+  animation: lamp-on 0.45s ease forwards;
+}
+
+.hull.on i:nth-child(2) { animation-delay: 0.12s; }
+.hull.on i:nth-child(3) { animation-delay: 0.24s; }
+.hull.on i:nth-child(4) { animation-delay: 0.36s; }
+.hull.on i:nth-child(5) { animation-delay: 0.48s; }
+.hull.on i:nth-child(6) { animation-delay: 0.6s; }
+
+@keyframes lamp-on {
+  from { opacity: 0.2; }
+  to { opacity: 1; }
+}
+
+.canister {
+  width: 72px;
+  min-height: 110px;
+  border-radius: 28px;
+  border: 2px solid #8eb4d6;
+  background: linear-gradient(#2a4458, #163044);
+  color: #d7f3ff;
+}
+
+.canister.vent {
+  background: linear-gradient(#1a242c, #12181e);
+  color: #8d98a3;
+  box-shadow: 0 -16px 0 rgba(180, 230, 255, 0.35);
+}
+
+.ruby-stage {
+  position: relative;
+  height: 180px;
+  margin: 12px 0;
+}
+
+.ruby, .safe {
+  position: absolute;
+  top: 24px;
+  width: 88px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ruby {
+  left: 16px;
+  background: #9a2430;
+  color: #ffe8ea;
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+  touch-action: none;
+  cursor: grab;
+}
+
+.safe {
+  right: 16px;
+  background: #2a241c;
+  border: 2px solid #d2b48a;
+  color: var(--muted);
+}
+
+.safe.full { color: #ffd0d4; border-color: #e08a8a; }
