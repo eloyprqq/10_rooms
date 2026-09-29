@@ -1,8 +1,8 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, isWalkable, locate } from "./map.js?v=6";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=6";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=6";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=6";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=6";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=9";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=9";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=9";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=9";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=9";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -87,6 +87,10 @@ function show(id) {
 
 function hide(id) {
   $(id).classList.add("hidden");
+}
+
+function syncAdmin() {
+  state.admin = String(state.name || "").trim().toLowerCase() === "adminstar";
 }
 
 function bodyId() {
@@ -412,6 +416,7 @@ function resetRun(difficulty) {
 }
 
 function beginSingle() {
+  syncAdmin();
   state.multi = false;
   state.phase = "boot";
   resetRun(state.difficulty);
@@ -419,11 +424,12 @@ function beginSingle() {
   state.phase = "play";
   hide("menu");
   show("hud");
-  toast("식당이다. 보급소에 물건이 있다.");
+  toast(state.admin ? "관리자 권한. 시각과 괴물 위치가 보인다." : "식당이다. 보급소에 물건이 있다.");
   armTimer();
 }
 
 async function beginMatchLocal(world) {
+  syncAdmin();
   state.phase = "boot";
   resetRun(state.difficulty);
   if (world) {
@@ -442,6 +448,7 @@ async function beginMatchLocal(world) {
   hide("lobby");
   hide("multi-setup");
   show("hud");
+  if (state.admin) toast("관리자 권한. 시각과 괴물 위치가 보인다.");
   if (state.multi && amHost()) await publish();
   armTimer();
 }
@@ -776,8 +783,10 @@ function updateHud(lamp) {
   $("hp-fill").classList.toggle("low", hp > 0 && hp <= 30);
   $("room-label").textContent = placeLabel();
   const clock = inv.find((it) => it.type === "clock" && it.left > 0);
-  $("clock-readout").classList.toggle("hidden", !clock);
-  if (clock) $("clock-readout").textContent = `시각 ${sim.time}  ·  시계 ${Math.ceil(clock.left)}`;
+  const showTime = state.admin || !!clock;
+  $("clock-readout").classList.toggle("hidden", !showTime);
+  if (state.admin) $("clock-readout").textContent = `시각 ${sim.time}`;
+  else if (clock) $("clock-readout").textContent = `시각 ${sim.time}  ·  시계 ${Math.ceil(clock.left)}`;
   let alarm = "";
   if (sim.reactor) alarm = `원자로 멜트다운 — 남은 시간 ${Math.max(0, sim.reactor.deadline - sim.time)}`;
   else if (!sim.power) alarm = "정전 — 전기실에서 전선을 연결하라";
@@ -832,28 +841,19 @@ function drawActor(x, y, facing, color, alive) {
     ctx.restore();
     return;
   }
-  ctx.fillStyle = "#2a2e38";
-  ctx.beginPath();
-  ctx.ellipse(0, 4, 12, 15, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.stroke();
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(0, -8, 7, 0, Math.PI * 2);
+  ctx.ellipse(0, 2, 13, 17, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#f0e2c4";
-  ctx.lineWidth = 2;
+  ctx.fillStyle = "#d7f3ff";
   ctx.beginPath();
-  ctx.moveTo(Math.cos(facing) * 8, Math.sin(facing) * 8 - 2);
-  ctx.lineTo(Math.cos(facing) * 18, Math.sin(facing) * 18 - 2);
-  ctx.stroke();
+  ctx.ellipse(Math.cos(facing) * 6, Math.sin(facing) * 6 - 1, 6, 4.2, facing, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
-function drawMonster(x, y, now, i) {
-  const flick = 0.28 + Math.sin(now / 70 + i) * 0.08;
+function drawMonster(x, y, now, i, revealed) {
+  const flick = revealed ? 0.95 : 0.28 + Math.sin(now / 70 + i) * 0.08;
   ctx.save();
   ctx.translate(x, y + Math.sin(now / 120 + i) * 2);
   ctx.scale(1.8, 1.8);
@@ -869,6 +869,14 @@ function drawMonster(x, y, now, i) {
   ctx.fillStyle = "#7a1018";
   ctx.fillRect(-5, -25, 3, 3);
   ctx.fillRect(2, -25, 3, 3);
+  if (revealed) {
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#ff4a4a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, -4, 28, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -900,32 +908,42 @@ function animateGhosts(dt) {
   for (const id of ghosts.keys()) if (!seen.has(id)) ghosts.delete(id);
 }
 
+let darkLayer = null;
+
 function drawDark(w, h, lamp, now) {
   const px = player.x - cam.x;
   const py = player.y - cam.y;
   const haunted = danger() > 0 && sim.power;
-  ctx.save();
-  const dark = sim.power ? (haunted ? 0.55 + Math.sin(now / 80) * 0.08 : 0.42) : 0.93;
-  ctx.fillStyle = `rgba(0,0,0,${dark})`;
-  ctx.fillRect(0, 0, w, h);
-  ctx.globalCompositeOperation = "destination-out";
-  const rad = sim.power ? 520 : 110;
-  const g = ctx.createRadialGradient(px, py, rad * 0.15, px, py, rad);
+  const dark = sim.power ? (haunted ? 0.55 : 0.22) : 0.94;
+  const rad = sim.power ? 980 : 120;
+  if (!darkLayer) darkLayer = document.createElement("canvas");
+  if (darkLayer.width !== Math.ceil(w) || darkLayer.height !== Math.ceil(h)) {
+    darkLayer.width = Math.ceil(w);
+    darkLayer.height = Math.ceil(h);
+  }
+  const o = darkLayer.getContext("2d");
+  o.setTransform(1, 0, 0, 1, 0, 0);
+  o.clearRect(0, 0, darkLayer.width, darkLayer.height);
+  o.fillStyle = `rgba(0,0,0,${dark})`;
+  o.fillRect(0, 0, w, h);
+  o.globalCompositeOperation = "destination-out";
+  const g = o.createRadialGradient(px, py, rad * 0.35, px, py, rad);
   g.addColorStop(0, "rgba(0,0,0,1)");
   g.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(px, py, rad, 0, Math.PI * 2);
-  ctx.fill();
+  o.fillStyle = g;
+  o.beginPath();
+  o.arc(px, py, rad, 0, Math.PI * 2);
+  o.fill();
   if (lamp) {
-    ctx.fillStyle = "rgba(0,0,0,0.95)";
-    ctx.beginPath();
-    ctx.moveTo(px, py);
-    ctx.arc(px, py, 680, player.facing - 0.48, player.facing + 0.48);
-    ctx.closePath();
-    ctx.fill();
+    o.fillStyle = "rgba(0,0,0,0.95)";
+    o.beginPath();
+    o.moveTo(px, py);
+    o.arc(px, py, 680, player.facing - 0.48, player.facing + 0.48);
+    o.closePath();
+    o.fill();
   }
-  ctx.restore();
+  o.globalCompositeOperation = "source-over";
+  ctx.drawImage(darkLayer, 0, 0);
 }
 
 function drawFacility(now, lamp) {
@@ -955,13 +973,19 @@ function drawFacility(now, lamp) {
   ctx.restore();
   drawDark(viewW, viewH, lamp, now);
   drawActor(player.x - cam.x, player.y - cam.y, player.facing, state.color, player.alive);
-  if (lamp) {
+  if (lamp || state.admin) {
     for (const m of sim.monsters) {
-      const g = ghosts.get(m.id);
-      if (!g) continue;
-      if (!inCone(player.x, player.y, player.facing, g.x, g.y)) continue;
-      drawMonster(g.x - cam.x, g.y - cam.y, now, m.id);
+      const g = ghosts.get(m.id) || anchorOf(m.place);
+      if (!state.admin && !inCone(player.x, player.y, player.facing, g.x, g.y)) continue;
+      drawMonster(g.x - cam.x, g.y - cam.y, now, m.id, state.admin);
     }
+  }
+  const mini = $("minimap");
+  if (mini) {
+    const marks = state.admin
+      ? sim.monsters.map((m) => ghosts.get(m.id) || anchorOf(m.place))
+      : [];
+    drawMinimap(mini.getContext("2d"), mini.width, mini.height, player, marks);
   }
 }
 

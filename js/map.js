@@ -201,92 +201,251 @@ export const WORLD = {
 
 let floorCache = null;
 
-function drawProps(ctx, room) {
-  const c = roomCenter(room.id);
-  ctx.save();
-  if (room.id !== "rooftop") {
-    ctx.translate(c.x, c.y);
-    ctx.scale(2.7, 2.7);
-    ctx.translate(-c.x, -c.y);
+const WALL = 36;
+const FLOORS = {
+  garden: "#5f6b58",
+  electrical: "#59616c",
+  supply2: "#6a6156",
+  map: "#5c6470",
+  cafeteria: "#6c615c",
+  supply1: "#6a6156",
+  reactor: "#6c585c",
+  cctv: "#56616a",
+  bedroom: "#675e66",
+  rooftop: "#66716a",
+};
+
+function roomDoors(room) {
+  const doors = { n: [], s: [], e: [], w: [] };
+  for (const c of CORRIDORS) {
+    if (c.kind !== "rect") continue;
+    if (c.a !== room.id && c.b !== room.id) continue;
+    if (c.w >= c.h) {
+      const side = c.x >= room.x + room.w - 2 ? "e" : "w";
+      doors[side].push({ a: c.y - room.y - 8, b: c.y + c.h - room.y + 8 });
+    } else {
+      const side = c.y >= room.y + room.h - 2 ? "s" : "n";
+      doors[side].push({ a: c.x - room.x - 8, b: c.x + c.w - room.x + 8 });
+    }
   }
-  if (room.id === "garden") {
-    for (const [dx, dy] of [[-50, -20], [40, 10], [-10, 40]]) {
-      ctx.fillStyle = "#1e3a2a";
-      ctx.beginPath();
-      ctx.arc(c.x + dx, c.y + dy, 16, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#3d6b4a";
-      ctx.beginPath();
-      ctx.arc(c.x + dx, c.y + dy - 6, 11, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (room.id === "electrical") {
-    ctx.fillStyle = "#121820";
-    ctx.fillRect(c.x - 34, c.y - 22, 68, 44);
-    ctx.strokeStyle = room.accent;
-    ctx.strokeRect(c.x - 34, c.y - 22, 68, 44);
-    for (let i = 0; i < 3; i++) {
-      ctx.fillStyle = i === 1 ? "#6ec1ff" : "#2a3c52";
-      ctx.fillRect(c.x - 24 + i * 18, c.y - 10, 10, 18);
-    }
-  } else if (room.id === "supply1" || room.id === "supply2") {
-    ctx.fillStyle = "#3a2e22";
-    ctx.fillRect(c.x - 28, c.y - 16, 26, 22);
-    ctx.fillRect(c.x + 4, c.y - 8, 24, 20);
-    ctx.strokeStyle = "#8a7050";
-    ctx.strokeRect(c.x - 28, c.y - 16, 26, 22);
-    ctx.strokeRect(c.x + 4, c.y - 8, 24, 20);
-  } else if (room.id === "map") {
-    ctx.fillStyle = "#2a2430";
-    ctx.fillRect(c.x - 36, c.y - 18, 72, 36);
-    ctx.strokeStyle = room.accent;
-    ctx.strokeRect(c.x - 36, c.y - 18, 72, 36);
-    ctx.strokeStyle = "rgba(230,220,200,0.35)";
-    ctx.strokeRect(c.x - 26, c.y - 10, 22, 16);
-    ctx.strokeRect(c.x + 2, c.y - 10, 22, 16);
-  } else if (room.id === "cafeteria") {
-    ctx.fillStyle = "#3a2a28";
-    for (const [dx, dy] of [[-40, -16], [24, 8]]) {
-      ctx.beginPath();
-      ctx.ellipse(c.x + dx, c.y + dy, 18, 10, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (room.id === "reactor") {
-    ctx.strokeStyle = "#8a3030";
-    ctx.lineWidth = 4;
+  return doors;
+}
+
+function wallSegments(length, gaps) {
+  const sorted = gaps
+    .map((g) => ({ a: Math.max(0, g.a), b: Math.min(length, g.b) }))
+    .filter((g) => g.b > g.a)
+    .sort((p, q) => p.a - q.a);
+  const out = [];
+  let cursor = 0;
+  for (const g of sorted) {
+    if (g.a > cursor + 1) out.push([cursor, g.a]);
+    cursor = Math.max(cursor, g.b);
+  }
+  if (cursor < length - 1) out.push([cursor, length]);
+  return out;
+}
+
+function drawWallSide(ctx, room, side, gaps) {
+  const { x, y, w, h } = room;
+  let rx = x;
+  let ry = y;
+  let rw = w;
+  let rh = h;
+  let along = "x";
+  if (side === "n") {
+    rw = w;
+    rh = WALL;
+    along = "x";
+  } else if (side === "s") {
+    ry = y + h - WALL;
+    rw = w;
+    rh = WALL;
+    along = "x";
+  } else if (side === "w") {
+    rw = WALL;
+    rh = h;
+    along = "y";
+  } else {
+    rx = x + w - WALL;
+    rw = WALL;
+    rh = h;
+    along = "y";
+  }
+  const length = along === "x" ? rw : rh;
+  for (const [a, b] of wallSegments(length, gaps)) {
+    const sx = along === "x" ? rx + a : rx;
+    const sy = along === "y" ? ry + a : ry;
+    const sw = along === "x" ? b - a : rw;
+    const sh = along === "y" ? b - a : rh;
+    ctx.fillStyle = "#2c333c";
+    ctx.fillRect(sx, sy, sw, sh);
+    ctx.fillStyle = "#8b949f";
+    if (side === "n") ctx.fillRect(sx, sy + sh - 6, sw, 6);
+    else if (side === "s") ctx.fillRect(sx, sy, sw, 6);
+    else if (side === "w") ctx.fillRect(sx + sw - 6, sy, 6, sh);
+    else ctx.fillRect(sx, sy, 6, sh);
+  }
+}
+
+function fillPanels(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.strokeStyle = "rgba(0,0,0,0.16)";
+  ctx.lineWidth = 2;
+  for (let px = x; px < x + w; px += 86) {
     ctx.beginPath();
-    ctx.arc(c.x, c.y, 28, 0, Math.PI * 2);
+    ctx.moveTo(px, y);
+    ctx.lineTo(px, y + h);
     ctx.stroke();
-    ctx.fillStyle = "#5a2024";
+  }
+  for (let py = y; py < y + h; py += 86) {
     ctx.beginPath();
-    ctx.arc(c.x, c.y, 12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineWidth = 1;
-  } else if (room.id === "cctv") {
-    ctx.fillStyle = "#10161c";
-    for (let i = 0; i < 3; i++) {
-      ctx.fillRect(c.x - 40 + i * 28, c.y - 16, 22, 16);
-      ctx.strokeStyle = "#6ec8c8";
-      ctx.strokeRect(c.x - 40 + i * 28, c.y - 16, 22, 16);
-    }
-    ctx.fillStyle = "#2a3844";
-    ctx.fillRect(c.x - 46, c.y + 6, 92, 10);
-  } else if (room.id === "bedroom") {
-    ctx.fillStyle = "#3a2c38";
-    ctx.fillRect(c.x - 56, c.y - 18, 40, 28);
-    ctx.fillRect(c.x + 12, c.y - 10, 40, 28);
-    ctx.fillStyle = "#d8d0dc";
-    ctx.fillRect(c.x - 50, c.y - 14, 12, 8);
-    ctx.fillRect(c.x + 18, c.y - 6, 12, 8);
-  } else if (room.id === "rooftop") {
-    ctx.strokeStyle = "rgba(200,210,200,0.35)";
-    ctx.strokeRect(room.x + 10, room.y + 10, room.w - 20, room.h - 20);
-    ctx.beginPath();
-    ctx.moveTo(room.x + 18, room.y + 18);
-    ctx.lineTo(room.x + room.w - 18, room.y + 18);
+    ctx.moveTo(x, py);
+    ctx.lineTo(x + w, py);
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function paintHall(ctx, c) {
+  const t = 26;
+  ctx.fillStyle = "#242a32";
+  ctx.fillRect(c.x - t, c.y - t, c.w + t * 2, c.h + t * 2);
+  ctx.fillStyle = "#5a636e";
+  ctx.fillRect(c.x, c.y, c.w, c.h);
+  fillPanels(ctx, c.x, c.y, c.w, c.h);
+  ctx.fillStyle = "#8b949f";
+  if (c.w >= c.h) {
+    ctx.fillRect(c.x, c.y, c.w, 5);
+    ctx.fillRect(c.x, c.y + c.h - 5, c.w, 5);
+  } else {
+    ctx.fillRect(c.x, c.y, 5, c.h);
+    ctx.fillRect(c.x + c.w - 5, c.y, 5, c.h);
+  }
+}
+
+function consoleBox(ctx, x, y, w, h, screen) {
+  ctx.fillStyle = "#3e4752";
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = "#1c2228";
+  ctx.fillRect(x + 8, y + 8, w - 16, Math.max(12, h * 0.42));
+  ctx.fillStyle = screen;
+  ctx.fillRect(x + 14, y + 14, 22, 12);
+  ctx.fillStyle = "#c9a24a";
+  ctx.fillRect(x + w - 28, y + h - 16, 12, 8);
+}
+
+function chair(ctx, x, y) {
+  ctx.fillStyle = "#343c46";
+  ctx.fillRect(x, y, 36, 44);
+  ctx.fillStyle = "#22282f";
+  ctx.fillRect(x + 5, y + 6, 26, 16);
+}
+
+function crate(ctx, x, y) {
+  ctx.fillStyle = "#6a5a3e";
+  ctx.fillRect(x, y, 46, 40);
+  ctx.strokeStyle = "#2a2418";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(x, y, 46, 40);
+  ctx.beginPath();
+  ctx.moveTo(x, y + 20);
+  ctx.lineTo(x + 46, y + 20);
+  ctx.stroke();
+}
+
+function wireRun(ctx, points, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.stroke();
+}
+
+function drawProps(ctx, room) {
+  const x = room.x + WALL + 18;
+  const y = room.y + WALL + 18;
+  const r = room.x + room.w - WALL - 18;
+  const b = room.y + room.h - WALL - 18;
+  if (room.id === "garden") {
+    for (const [px, py] of [[x, y], [x + 70, y + 20], [x, y + 90]]) {
+      ctx.fillStyle = "#3d4a38";
+      ctx.fillRect(px, py, 54, 54);
+      ctx.fillStyle = "#6d8a62";
+      ctx.beginPath();
+      ctx.arc(px + 27, py + 22, 16, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (room.id === "electrical") {
+    consoleBox(ctx, x, b - 70, 150, 70, "#3ec0ff");
+    consoleBox(ctx, x + 170, b - 58, 110, 58, "#7d8cff");
+    const midY = room.y + room.h * 0.55;
+    wireRun(ctx, [[x + 40, y + 30], [x + 180, y + 30], [x + 180, midY], [r - 40, midY]], "#e24b4b");
+    wireRun(ctx, [[x + 70, y + 70], [x + 240, y + 90], [x + 240, midY + 30], [r - 80, midY + 36]], "#3aa0e8");
+    wireRun(ctx, [[x + 20, y + 120], [x + 140, y + 150], [r - 120, y + 150]], "#e2c14a");
+  } else if (room.id === "supply1" || room.id === "supply2") {
+    crate(ctx, x, y);
+    crate(ctx, x + 54, y + 8);
+    crate(ctx, r - 46, b - 40);
+    crate(ctx, r - 100, b - 36);
+  } else if (room.id === "map") {
+    consoleBox(ctx, x, y, 180, 78, "#9fd0c8");
+    chair(ctx, x + 40, y + 96);
+    chair(ctx, x + 100, y + 96);
+    ctx.fillStyle = "#3a4250";
+    ctx.fillRect(r - 120, b - 80, 110, 70);
+    ctx.strokeStyle = "rgba(220,230,236,0.35)";
+    ctx.strokeRect(r - 100, b - 64, 70, 40);
+  } else if (room.id === "cafeteria") {
+    ctx.fillStyle = "#4a403c";
+    ctx.beginPath();
+    ctx.ellipse(room.x + room.w * 0.38, room.y + room.h * 0.48, 70, 36, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(room.x + room.w * 0.62, room.y + room.h * 0.58, 64, 32, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    chair(ctx, x, b - 44);
+    chair(ctx, x + 48, b - 44);
+  } else if (room.id === "reactor") {
+    const cx = room.x + room.w / 2;
+    const cy = room.y + room.h / 2;
+    ctx.strokeStyle = "#8a3038";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 54, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#5a2428";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2;
+    consoleBox(ctx, x, y, 130, 64, "#ff5a5a");
+  } else if (room.id === "cctv") {
+    for (let i = 0; i < 4; i++) consoleBox(ctx, x + i * 78, y, 70, 52, i % 2 ? "#67d0c8" : "#8eb4e8");
+    ctx.fillStyle = "#2c343c";
+    ctx.fillRect(x, y + 58, 300, 16);
+    chair(ctx, x + 40, y + 90);
+    chair(ctx, x + 150, y + 90);
+  } else if (room.id === "bedroom") {
+    ctx.fillStyle = "#4a3e48";
+    ctx.fillRect(x, y, 120, 64);
+    ctx.fillRect(x + 150, y, 120, 64);
+    ctx.fillStyle = "#d5d0dc";
+    ctx.fillRect(x + 10, y + 8, 36, 18);
+    ctx.fillRect(x + 160, y + 8, 36, 18);
+    chair(ctx, r - 50, b - 50);
+  } else if (room.id === "rooftop") {
+    ctx.strokeStyle = "rgba(210,220,214,0.45)";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(room.x + WALL + 8, room.y + WALL + 8, room.w - (WALL + 8) * 2, room.h - (WALL + 8) * 2);
+    ctx.lineWidth = 2;
+  }
 }
 
 export function getFloorCanvas() {
@@ -295,17 +454,17 @@ export function getFloorCanvas() {
   canvas.width = WORLD.maxX + 40;
   canvas.height = WORLD.maxY + 40;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#07080c";
+  ctx.fillStyle = "#10141a";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.lineCap = "round";
-  ctx.strokeStyle = "#121722";
-  ctx.lineWidth = DIAG.half * 2 + 18;
+  ctx.strokeStyle = "#1a1e24";
+  ctx.lineWidth = DIAG.half * 2 + 22;
   ctx.beginPath();
   ctx.moveTo(DIAG.x1, DIAG.y1);
   ctx.lineTo(DIAG.x2, DIAG.y2);
   ctx.stroke();
-  ctx.strokeStyle = "#1c2430";
+  ctx.strokeStyle = "#3a414a";
   ctx.lineWidth = DIAG.half * 2;
   ctx.beginPath();
   ctx.moveTo(DIAG.x1, DIAG.y1);
@@ -313,38 +472,30 @@ export function getFloorCanvas() {
   ctx.stroke();
 
   for (const c of CORRIDORS) {
-    if (c.kind !== "rect") continue;
-    ctx.fillStyle = "#1a2030";
-    ctx.fillRect(c.x, c.y, c.w, c.h);
-    ctx.strokeStyle = "#3c4a60";
-    ctx.lineWidth = 4;
-    ctx.strokeRect(c.x + 1, c.y + 1, c.w - 2, c.h - 2);
+    if (c.kind === "rect") paintHall(ctx, c);
   }
 
   for (const room of ROOMS) {
-    ctx.fillStyle = room.floor;
+    ctx.fillStyle = FLOORS[room.id] || "#626a74";
     ctx.fillRect(room.x, room.y, room.w, room.h);
-    ctx.strokeStyle = "#8b97a8";
-    ctx.lineWidth = 10;
-    ctx.strokeRect(room.x + 2, room.y + 2, room.w - 4, room.h - 4);
-    ctx.strokeStyle = "rgba(0,0,0,0.45)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(room.x + 7, room.y + 7, room.w - 14, room.h - 14);
+    fillPanels(ctx, room.x, room.y, room.w, room.h);
+    const doors = roomDoors(room);
+    drawWallSide(ctx, room, "n", doors.n);
+    drawWallSide(ctx, room, "s", doors.s);
+    drawWallSide(ctx, room, "w", doors.w);
+    drawWallSide(ctx, room, "e", doors.e);
     drawProps(ctx, room);
     const p = roomCenter(room.id);
-    ctx.fillStyle = "rgba(232, 226, 214, 0.78)";
-    ctx.font = '600 48px "IBM Plex Sans KR", "Malgun Gothic", sans-serif';
+    ctx.fillStyle = "rgba(226, 232, 238, 0.78)";
+    ctx.font = '600 40px "IBM Plex Sans KR", "Malgun Gothic", sans-serif';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(room.name, p.x, p.y - 170);
-    ctx.fillStyle = "rgba(232, 226, 214, 0.4)";
-    ctx.font = '600 28px "IBM Plex Sans KR", sans-serif';
-    ctx.fillText(String(room.num).padStart(2, "0"), p.x, room.y + room.h - 36);
+    ctx.fillText(room.name, p.x, room.y + room.h - 78);
   }
 
-  ctx.strokeStyle = "rgba(180, 60, 60, 0.55)";
-  ctx.lineWidth = 3;
-  ctx.setLineDash([8, 10]);
+  ctx.strokeStyle = "rgba(20, 24, 28, 0.55)";
+  ctx.lineWidth = 8;
+  ctx.setLineDash([16, 18]);
   ctx.beginPath();
   ctx.moveTo(DIAG.x1, DIAG.y1);
   ctx.lineTo(DIAG.x2, DIAG.y2);
@@ -411,6 +562,49 @@ export function drawSchematic(ctx, w, h, player, others = []) {
     dot(o.x, o.y, o.color || "#3d74d6", o.name);
   }
   if (player) dot(player.x, player.y, "#9a2430", "나");
+}
+
+export function drawMinimap(ctx, w, h, player, monsters = []) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#171b22";
+  ctx.fillRect(0, 0, w, h);
+  const pad = 14;
+  const scale = Math.min((w - pad * 2) / (WORLD.maxX - 20), (h - pad * 2) / (WORLD.maxY - 10));
+  const ox = (w - WORLD.maxX * scale) / 2;
+  const oy = (h - WORLD.maxY * scale) / 2;
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.scale(scale, scale);
+  ctx.lineCap = "butt";
+  ctx.strokeStyle = "#3a414a";
+  ctx.lineWidth = DIAG.half * 2;
+  ctx.beginPath();
+  ctx.moveTo(DIAG.x1, DIAG.y1);
+  ctx.lineTo(DIAG.x2, DIAG.y2);
+  ctx.stroke();
+  ctx.fillStyle = "#4e565f";
+  for (const c of CORRIDORS) {
+    if (c.kind === "rect") ctx.fillRect(c.x, c.y, c.w, c.h);
+  }
+  for (const room of ROOMS) {
+    ctx.fillStyle = "#8b939c";
+    ctx.fillRect(room.x, room.y, room.w, room.h);
+    ctx.strokeStyle = "#2a3038";
+    ctx.lineWidth = 18;
+    ctx.strokeRect(room.x, room.y, room.w, room.h);
+  }
+  ctx.restore();
+  const mark = (x, y, color, radius) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(ox + x * scale, oy + y * scale, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#10141a";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  };
+  for (const m of monsters) mark(m.x, m.y, "#e23b3b", 5);
+  if (player) mark(player.x, player.y, "#f2f6fb", 6);
 }
 
 export function fitPoint(x, y, w, h) {
