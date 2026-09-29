@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=18";
+} from "./map.js?v=19";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -233,7 +233,7 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
             continue;
           }
           monster.exposure[body.id] = (monster.exposure[body.id] || 0) + 1;
-          if (monster.exposure[body.id] >= 5) caught.push(body);
+          if (monster.exposure[body.id] >= 1) caught.push(body);
         }
         if (caught.length) {
           for (const body of caught) {
