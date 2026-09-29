@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=12";
+} from "./map.js?v=14";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -177,6 +177,7 @@ export function createMatch(difficulty, rng = Math.random) {
     power: true,
     reactor: null,
     meltdown: false,
+    doneTasks: [],
     monsters,
     history: [],
     difficulty,
@@ -194,7 +195,7 @@ export function snapshot(state, t, hits) {
   };
 }
 
-export function advance(state, delta, bodies, rng = Math.random) {
+export function advance(state, delta, bodies, rng = Math.random, now = Date.now()) {
   if (state.meltdown) return [];
   const snaps = [];
   const living = bodies.filter((b) => b.alive);
@@ -203,12 +204,8 @@ export function advance(state, delta, bodies, rng = Math.random) {
   for (let t = state.time + 1; t <= next; t++) {
     const hits = [];
     if (t % 7 === 0) state.power = false;
-    if (t % 9 === 0 && !state.reactor && !state.meltdown) {
-      state.reactor = { start: t, deadline: t + 9 };
-    }
-    if (state.reactor && t >= state.reactor.deadline) {
-      state.meltdown = true;
-      state.reactor = null;
+    if (t % 13 === 0 && !state.reactor && !state.meltdown) {
+      state.reactor = { start: t, deadlineAt: now + 15000 };
     }
 
     if (!state.meltdown && focusPool.length) {

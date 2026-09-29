@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=9" />
+  <link rel="stylesheet" href="css/style.css?v=10" />
 </head>
 <body>
   <canvas id="view"></canvas>
@@ -16,6 +16,13 @@
   <div id="hurt"></div>
 
   <div id="hud" class="hidden">
+    <div id="taskbar">
+      <button id="task-toggle" type="button">
+        <span id="task-label">미션 0/10</span>
+        <div class="task-track"><div id="task-fill"></div></div>
+      </button>
+      <ul id="task-list" class="hidden"></ul>
+    </div>
     <div id="hp-wrap">
       <div class="hp-label"><span>체력</span><b id="hp-num">100</b></div>
       <div class="hp-track"><div id="hp-fill"></div></div>
@@ -79,7 +86,10 @@
       <h3>시설</h3>
       <ul>
         <li>시각이 7의 배수이면 정전. 전기실에서 전선을 연결하면 복구된다.</li>
-        <li>시각이 9의 배수이면 원자로가 불안정해지고, 시간 9 안에 카드를 긁어야 한다. 실패하면 폭파.</li>
+        <li>시각이 13의 배수이면 원자로가 불안정해지고, 15초 안에 카드를 긁어야 한다. 실패하면 폭파.</li>
+        <li>방마다 미션이 하나 있다. 방 한가운데에서 E. 성공할 때마다 왼쪽 위 미션 바가 10%씩 찬다. 바를 누르면 목록이 열린다.</li>
+        <li>정원은 물 주기, 전기실은 차단기, 보급소 2는 상자 색, 지도는 좌표, 식당은 접시, 보급소 1은 재고, 원자로는 출력, CCTV는 이상 화면, 침실은 이불, 옥상은 안테나.</li>
+        <li>정전이거나 원자로가 불안정하면 그 수리가 미션보다 먼저다. 미션을 끝낸 뒤의 보급, 도면, CCTV는 예전과 같다.</li>
         <li>CCTV실에서 1부터 10을 보면 그 방의 괴물 여부를 알 수 있다. 다시 보려면 15초.</li>
         <li>보급소에서 물건을 받는다. 한 곳당 20초마다 한 번. 가방은 4칸, Q로 버린다.</li>
       </ul>
@@ -213,6 +223,16 @@
     </div>
   </section>
 
+  <section id="mission-overlay" class="screen dim hidden">
+    <div class="panel">
+      <p class="kicker" id="mission-kicker">MISSION</p>
+      <h2 id="mission-title">미션</h2>
+      <p id="mission-msg"></p>
+      <div id="mission-body"></div>
+      <button id="mission-close" class="ghost" type="button">닫기</button>
+    </div>
+  </section>
+
   <section id="card-overlay" class="screen dim hidden">
     <div class="panel">
       <p class="kicker">REACTOR</p>
@@ -223,6 +243,6 @@
     </div>
   </section>
 
-  <script type="module" src="js/game.js?v=12"></script>
+  <script type="module" src="js/game.js?v=14"></script>
 </body>
 </html>
