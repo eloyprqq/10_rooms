@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=15";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=15";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=15";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=15";
-import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=15";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=15";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=16";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=16";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=16";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=16";
+import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=16";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=16";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -341,7 +341,7 @@ function consume(snap) {
   }
   if (snap.reactor && state.seen.reactor !== snap.reactor.start) {
     state.seen.reactor = snap.reactor.start;
-    toast("원자로 이상. 15초 안에 카드를 긁어라.");
+    toast("원자로 이상. 40초 안에 카드를 긁어라.");
   }
   for (const hit of snap.hits || []) {
     if (hit.playerId === bodyId()) hurt(hit.amount, "monster");

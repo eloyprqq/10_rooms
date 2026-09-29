@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=15";
+} from "./map.js?v=16";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -207,7 +207,7 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
     const hits = [];
     if (t % 7 === 0) state.power = false;
     if (t % 13 === 0 && !state.reactor && !state.meltdown) {
-      state.reactor = { start: t, deadlineAt: now + 15000 };
+      state.reactor = { start: t, deadlineAt: now + 40000 };
     }
 
     if (!state.meltdown && focusPool.length) {
