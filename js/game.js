@@ -1,8 +1,8 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=9";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=9";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=9";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=9";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=9";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=12";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=12";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=12";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=12";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=12";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");

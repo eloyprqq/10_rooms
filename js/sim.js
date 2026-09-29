@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=9";
+} from "./map.js?v=12";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -199,7 +199,8 @@ export function advance(state, delta, bodies, rng = Math.random) {
   const snaps = [];
   const living = bodies.filter((b) => b.alive);
   const focusPool = living.length ? living : bodies;
-  for (let t = state.time + 1; t <= state.time + delta; t++) {
+  const next = state.time + delta;
+  for (let t = state.time + 1; t <= next; t++) {
     const hits = [];
     if (t % 7 === 0) state.power = false;
     if (t % 9 === 0 && !state.reactor && !state.meltdown) {
