@@ -12,13 +12,13 @@
 //   }
 // }
 export const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  databaseURL: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyAncTFNuQ_fn3nFny9wcXSB1Y9Bm7Fo5kU",
+  authDomain: "rooms-3a443.firebaseapp.com",
+  databaseURL: "https://rooms-3a443-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "rooms-3a443",
+  storageBucket: "rooms-3a443.firebasestorage.app",
+  messagingSenderId: "925118596629",
+  appId: "1:925118596629:web:ab6070398518474484301c",
 };
 
 export function isFirebaseConfigured() {
