@@ -631,6 +631,19 @@ pre {
 
 #death h2, #downed h2, #pause h2 { font-family: "Black Han Sans", sans-serif; font-size: 42px; margin: 0 0 8px; }
 
+#downed.screen {
+  align-items: flex-end;
+  justify-content: flex-start;
+  background: transparent;
+  pointer-events: none;
+}
+
+#downed .panel {
+  width: min(380px, 92vw);
+  margin: 0 0 150px 22px;
+  pointer-events: auto;
+}
+
 #lobby.screen {
   align-items: flex-start;
   justify-content: flex-start;

@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate } from "./map.js?v=22";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=22";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=22";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=22";
-import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=22";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=22";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD } from "./map.js?v=23";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=23";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=23";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=23";
+import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=23";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=23";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -102,6 +102,10 @@ function bodyId() {
 function playerRoom() {
   const loc = locate(player.x, player.y);
   return loc.kind === "room" ? loc.id : null;
+}
+
+function isGhost() {
+  return state.multi && state.phase === "play" && !player.alive;
 }
 
 function placeLabel() {
@@ -216,6 +220,11 @@ function hurt(amount, source) {
   }
   player.hp = 0;
   player.alive = false;
+  player.corpse = { x: player.x, y: player.y };
+  closeMinigames();
+  closeMission();
+  hide("cctv-overlay");
+  hide("map-overlay");
   pushPresence();
   if (source === "meltdown" || !state.multi) {
     state.phase = "dead";
@@ -226,6 +235,7 @@ function hurt(amount, source) {
     show("death");
     hide("hud");
   } else {
+    toast("유령이 되었다. 같은 방에서 붕대를 받으면 돌아온다.");
     show("downed");
   }
 }
@@ -384,6 +394,8 @@ function pushPresence() {
     alive: player.alive,
     room: loc.kind === "room" ? loc.id : "",
     hall: loc.kind === "corridor" ? loc.id : "",
+    corpseX: player.corpse ? Math.round(player.corpse.x) : "",
+    corpseY: player.corpse ? Math.round(player.corpse.y) : "",
   });
 }
 
@@ -410,6 +422,7 @@ function resetRun(difficulty) {
   state.taskSig = null;
   player.hp = 100;
   player.alive = true;
+  player.corpse = null;
   player.facing = 0;
   const spawn = roomCenter("cafeteria");
   player.x = spawn.x;
@@ -814,6 +827,7 @@ function onRoom(data) {
       state.seen.revive = me.reviveAt;
       player.alive = true;
       player.hp = 50;
+      player.corpse = null;
       hide("downed");
       show("hud");
       toast("일어났다.");
@@ -854,7 +868,8 @@ function resize() {
 }
 
 function movePlayer(dt) {
-  if (!player.alive || state.paused || busy()) return;
+  if (state.paused || busy()) return;
+  if (!player.alive && !isGhost()) return;
   if ($("map-overlay").classList.contains("hidden") === false) return;
   if (!$("cctv-overlay").classList.contains("hidden")) return;
   let x = 0;
@@ -870,6 +885,11 @@ function movePlayer(dt) {
   const dx = (x / len) * speed * dt;
   const dy = (y / len) * speed * dt;
   player.facing = Math.atan2(y, x);
+  if (isGhost()) {
+    player.x = Math.max(WORLD.minX, Math.min(WORLD.maxX, player.x + dx));
+    player.y = Math.max(WORLD.minY, Math.min(WORLD.maxY, player.y + dy));
+    return;
+  }
   const walk = state.phase === "lobby" ? lobbyWalk : isWalkable;
   if (walk(player.x + dx, player.y)) player.x += dx;
   if (walk(player.x, player.y + dy)) player.y += dy;
@@ -921,15 +941,16 @@ function updateHud(lamp) {
     const sec = Math.max(0, Math.ceil((sim.reactor.deadlineAt - mark) / 1000));
     alarm = `원자로 멜트다운 — 남은 ${sec}초`;
   }
-  else if (!sim.power) alarm = "정전 — 전기실에서 전선을 연결하라";
+  else if (!sim.power) alarm = isGhost() ? "정전 · 유령은 어둠에 영향을 받지 않는다" : "정전 — 전기실에서 전선을 연결하라";
   $("alarm-line").textContent = alarm;
   const d = danger();
   $("warn-line").textContent = !state.admin ? "" : d >= 3 ? "이 방에 더 머물면 안 된다." : d > 0 ? "같은 방에 무언가가 있다." : "";
   $("hurt").style.background = d > 0 ? `rgba(120,0,0,${0.08 + d * 0.06})` : "rgba(140,0,0,0)";
-  const mood = `${d}|${sim.reactor ? 1 : 0}|${sim.power ? 0 : 1}`;
+  const ghost = isGhost();
+  const mood = `${ghost ? 0 : d}|${sim.reactor ? 1 : 0}|${sim.power && !ghost ? 0 : ghost ? 0 : 1}`;
   if (mood !== state.clockMood) {
     state.clockMood = mood;
-    setMood({ heartbeat: d, alarm: !!sim.reactor, powerOff: !sim.power });
+    setMood({ heartbeat: ghost ? 0 : d, alarm: !!sim.reactor, powerOff: !sim.power && !ghost });
   }
   $("net-pill").classList.toggle("hidden", !state.multi);
   if (state.multi) $("net-pill").textContent = currentCode();
@@ -940,6 +961,7 @@ function updateHud(lamp) {
 }
 
 function promptText() {
+  if (isGhost()) return "유령 · 벽을 통과한다";
   const loc = locate(player.x, player.y);
   if (loc.kind !== "room") {
     const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 80);
@@ -1015,6 +1037,26 @@ function drawShieldLights(now) {
     ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2);
     ctx.fill();
   });
+  ctx.restore();
+}
+
+function drawGhost(x, y, facing, color, now) {
+  ctx.save();
+  ctx.translate(x, y + Math.sin(now / 280) * 8);
+  ctx.globalAlpha = 0.48;
+  ctx.scale(1.7, 1.7);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(0, -2, 13, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-9, 10);
+  ctx.quadraticCurveTo(0, 30, 9, 10);
+  ctx.fill();
+  ctx.fillStyle = "rgba(215, 243, 255, 0.75)";
+  ctx.beginPath();
+  ctx.ellipse(Math.cos(facing) * 6, Math.sin(facing) * 6 - 2, 6, 4.2, facing, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -1105,9 +1147,11 @@ let darkLayer = null;
 function drawDark(w, h, lamp, now) {
   const px = player.x - cam.x;
   const py = player.y - cam.y;
-  const haunted = danger() > 0 && sim.power;
-  const dark = sim.power ? (haunted ? 0.55 : 0.22) : 0.94;
-  const rad = sim.power ? 980 : 120;
+  const ghost = isGhost();
+  const lit = sim.power || ghost;
+  const haunted = danger() > 0 && sim.power && !ghost;
+  const dark = lit ? (haunted ? 0.55 : 0.22) : 0.94;
+  const rad = lit ? 980 : 120;
   if (!darkLayer) darkLayer = document.createElement("canvas");
   if (darkLayer.width !== Math.ceil(w) || darkLayer.height !== Math.ceil(h)) {
     darkLayer.width = Math.ceil(w);
@@ -1161,10 +1205,20 @@ function drawFacility(now, lamp) {
     ctx.fillStyle = "#f4efe4";
     ctx.fillText(ITEM[g.type] || "", g.x, g.y - 24);
   }
-  for (const o of others()) drawActor(o.x, o.y, o.facing || 0, o.color || "#88a", o.alive !== false);
+  for (const o of others()) {
+    if (o.alive === false) {
+      const cx = o.corpseX === "" || o.corpseX == null ? o.x : o.corpseX;
+      const cy = o.corpseY === "" || o.corpseY == null ? o.y : o.corpseY;
+      drawActor(cx, cy, 0, o.color || "#88a", false);
+    } else drawActor(o.x, o.y, o.facing || 0, o.color || "#88a", true);
+  }
   ctx.restore();
   drawDark(viewW, viewH, lamp, now);
-  drawActor(player.x - cam.x, player.y - cam.y, player.facing, state.color, player.alive);
+  if (isGhost()) drawGhost(player.x - cam.x, player.y - cam.y, player.facing, state.color, now);
+  else drawActor(player.x - cam.x, player.y - cam.y, player.facing, state.color, player.alive);
+  for (const o of others()) {
+    if (o.alive === false) drawGhost(o.x - cam.x, o.y - cam.y, o.facing || 0, o.color || "#88a", now);
+  }
   drawShieldLights(now);
   if (lamp || state.admin) {
     for (const m of sim.monsters) {

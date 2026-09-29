@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=11" />
+  <link rel="stylesheet" href="css/style.css?v=12" />
 </head>
 <body>
   <canvas id="view"></canvas>
@@ -103,7 +103,8 @@
         <li>CCTV 리모컨: 내구도 3. CCTV와 같이 방을 본다.</li>
         <li>십자가: 죽음을 한 번 막는다. 쓰면 괴물 위치가 흩어진다.</li>
         <li>시계: 시각을 보여 주고, 시간 30이 지나면 부서진다.</li>
-        <li>붕대: 멀티에서만. 같은 방의 쓰러진 사람을 살린다.</li>
+        <li>붕대: 멀티 보급에서만 나온다. 같은 방에 있는 유령을 살린다.</li>
+        <li>멀티에서 쓰러지면 유령이 된다. 벽을 통과해 관전하고, 정전 어둠은 적용되지 않는다. 같은 방의 동료가 붕대를 쓰면 돌아온다.</li>
       </ul>
       <p>체력 최대는 100이다.</p>
       <button id="manual-close" class="ghost" type="button">닫기</button>
@@ -187,8 +188,8 @@
 
   <section id="downed" class="screen dim hidden">
     <div class="panel">
-      <h2>쓰러졌다</h2>
-      <p class="lead">같은 방의 동료가 붕대를 쓰면 일어납니다.</p>
+      <h2>유령</h2>
+      <p class="lead">벽을 통과해 관전한다. 정전은 적용되지 않는다. 같은 방의 동료가 붕대를 쓰면 돌아온다.</p>
       <button id="downed-menu" class="ghost" type="button">메뉴로</button>
     </div>
   </section>
@@ -245,6 +246,6 @@
     </div>
   </section>
 
-  <script type="module" src="js/game.js?v=22"></script>
+  <script type="module" src="js/game.js?v=23"></script>
 </body>
 </html>
