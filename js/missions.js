@@ -243,7 +243,7 @@ function meteors(body, msg, succeed, mine) {
     const tx = 180 + Math.random() * 200;
     const ty = 80 + Math.random() * 120;
     const d = Math.hypot(tx - rock.x, ty - rock.y) || 1;
-    const speed = 0.55 + Math.random() * 0.45;
+    const speed = 0.18 + Math.random() * 0.1;
     rock.vx = ((tx - rock.x) / d) * speed;
     rock.vy = ((ty - rock.y) / d) * speed;
     rocks.push(rock);
