@@ -1,8 +1,8 @@
-const RW = 200;
-const RH = 156;
-const COLS = [90, 470, 850, 1230];
-const ROWS = [70, 400, 730];
-const HALL = 72;
+const RW = 680;
+const RH = 500;
+const COLS = [160, 1320, 2480, 3640];
+const ROWS = [140, 1120, 2100];
+const HALL = 128;
 
 const SPEC = [
   ["garden", "정원", 1, 0, 1, 0.2, "#17211c", "#8fb59a"],
@@ -68,7 +68,7 @@ export const DIAG = {
   y1: elec.y + 28,
   x2: roof.x + 36,
   y2: roof.y + roof.h - 28,
-  half: 34,
+  half: 58,
   kind: "diag",
 };
 
@@ -173,16 +173,22 @@ export function locate(x, y) {
   return { kind: "void", id: null };
 }
 
+function hallWalkRect(c) {
+  const reach = 72;
+  if (c.w >= c.h) return { x: c.x - reach, y: c.y, w: c.w + reach * 2, h: c.h };
+  return { x: c.x, y: c.y - reach, w: c.w, h: c.h + reach * 2 };
+}
+
 export function isWalkable(x, y) {
   const pad = 12;
   for (const room of ROOMS) {
     if (inRect(x, y, room, -pad)) return true;
   }
   for (const c of CORRIDORS) {
-    if (c.kind === "rect" && inRect(x, y, c, -8)) return true;
+    if (c.kind === "rect" && inRect(x, y, hallWalkRect(c), -8)) return true;
   }
   const d = diagInfo(x, y);
-  if (d.dist <= DIAG.half - 8 && d.t >= -0.01 && d.t <= 1.01) return true;
+  if (d.dist <= DIAG.half - 8 && d.t >= -0.02 && d.t <= 1.02) return true;
   return false;
 }
 
@@ -198,6 +204,11 @@ let floorCache = null;
 function drawProps(ctx, room) {
   const c = roomCenter(room.id);
   ctx.save();
+  if (room.id !== "rooftop") {
+    ctx.translate(c.x, c.y);
+    ctx.scale(2.7, 2.7);
+    ctx.translate(-c.x, -c.y);
+  }
   if (room.id === "garden") {
     for (const [dx, dy] of [[-50, -20], [40, 10], [-10, 40]]) {
       ctx.fillStyle = "#1e3a2a";
@@ -314,7 +325,7 @@ export function getFloorCanvas() {
     ctx.fillStyle = room.floor;
     ctx.fillRect(room.x, room.y, room.w, room.h);
     ctx.strokeStyle = "#8b97a8";
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 10;
     ctx.strokeRect(room.x + 2, room.y + 2, room.w - 4, room.h - 4);
     ctx.strokeStyle = "rgba(0,0,0,0.45)";
     ctx.lineWidth = 2;
@@ -322,13 +333,13 @@ export function getFloorCanvas() {
     drawProps(ctx, room);
     const p = roomCenter(room.id);
     ctx.fillStyle = "rgba(232, 226, 214, 0.78)";
-    ctx.font = '600 20px "IBM Plex Sans KR", "Malgun Gothic", sans-serif';
+    ctx.font = '600 48px "IBM Plex Sans KR", "Malgun Gothic", sans-serif';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(room.name, p.x, p.y - 46);
+    ctx.fillText(room.name, p.x, p.y - 170);
     ctx.fillStyle = "rgba(232, 226, 214, 0.4)";
-    ctx.font = '600 13px "IBM Plex Sans KR", sans-serif';
-    ctx.fillText(String(room.num).padStart(2, "0"), p.x, room.y + room.h - 18);
+    ctx.font = '600 28px "IBM Plex Sans KR", sans-serif';
+    ctx.fillText(String(room.num).padStart(2, "0"), p.x, room.y + room.h - 36);
   }
 
   ctx.strokeStyle = "rgba(180, 60, 60, 0.55)";

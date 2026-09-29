@@ -1,0 +1,19 @@
+---
+description: Push every finished change in this repo to GitHub Pages
+alwaysApply: true
+---
+
+# GitHub Pages push
+
+After any request that changes files in this repo, commit those changes and push to `origin` `main` before the reply is finished. GitHub Pages serves this branch, so a push is the deploy.
+
+- Remote: `https://github.com/eloyprqq/10_rooms.git`
+- Site: `https://eloyprqq.github.io/10_rooms/`
+- Do not force-push. Do not run `git config`.
+- Do not commit secrets. `js/firebase-config.js` may be committed only while the keys are still empty placeholders.
+- On Windows, write a temporary bash script and run it with `C:\Program Files\Git\bin\bash.exe`. Do not put `git commit` or a heredoc on the PowerShell command line.
+- If git has no author, pass it once with `git -c user.name=ally -c user.email=ally@users.noreply.github.com`.
+- Delete the temporary script after the commit. Do not leave it in the tree.
+- If nothing changed, do not create an empty commit.
+- When JS or CSS changes, bump the `?v=` on `index.html` and on every local `import` so Pages does not keep the old modules.
+- Tell the user the Pages URL, and that a hard refresh loads the new build.

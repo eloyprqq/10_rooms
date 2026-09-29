@@ -1,8 +1,8 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, isWalkable, locate } from "./map.js";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, isWalkable, locate } from "./map.js?v=6";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=6";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=6";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=6";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=6";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -67,7 +67,8 @@ let ground = [];
 let sim = null;
 let uid = 1;
 let last = performance.now();
-let timer = 0;
+let clockOn = false;
+let timeAcc = 0;
 let viewW = 1280;
 let viewH = 720;
 let ghosts = new Map();
@@ -212,7 +213,7 @@ function hurt(amount, source) {
   pushPresence();
   if (source === "meltdown" || !state.multi) {
     state.phase = "dead";
-    clearInterval(timer);
+    stopClock();
     $("death-title").textContent = source === "meltdown" ? "원자로가 폭파했다" : "어둠에 남았다";
     $("death-sub").textContent = `버틴 시각 ${sim ? sim.time : 0}`;
     hide("downed");
@@ -446,19 +447,29 @@ async function beginMatchLocal(world) {
 }
 
 function armTimer() {
-  clearInterval(timer);
-  timer = setInterval(() => {
-    if (state.phase !== "play" || state.paused || !sim) return;
-    if (!state.multi && !player.alive) return;
-    if (state.multi && !amHost()) return;
-    const delta = rollDelta();
-    const snaps = advance(sim, delta, bodies());
-    for (const snap of snaps) {
-      consume(snap);
-      if (state.phase !== "play") break;
-    }
-    if (state.multi) publish();
-  }, 3000);
+  clockOn = true;
+  timeAcc = 0;
+}
+
+function stopClock() {
+  clockOn = false;
+  timeAcc = 0;
+}
+
+function tickTime(dt) {
+  if (!clockOn || state.phase !== "play" || state.paused || !sim) return;
+  if (!state.multi && !player.alive) return;
+  if (state.multi && !amHost()) return;
+  timeAcc += dt * 1000;
+  if (timeAcc < 6000) return;
+  timeAcc -= 6000;
+  if (timeAcc > 6000) timeAcc = 0;
+  const snaps = advance(sim, rollDelta(), bodies());
+  for (const snap of snaps) {
+    consume(snap);
+    if (state.phase !== "play") break;
+  }
+  if (state.multi) publish();
 }
 
 function fixPower() {
@@ -486,7 +497,7 @@ function interact() {
   const loc = locate(player.x, player.y);
   if (loc.kind === "room") {
     const c = roomCenter(loc.id);
-    const near = Math.hypot(player.x - c.x, player.y - c.y) < 118;
+    const near = Math.hypot(player.x - c.x, player.y - c.y) < 200;
     if (near && loc.id === "electrical") {
       if (sim.power) toast("전력은 정상이다.");
       else openWires();
@@ -520,7 +531,7 @@ function interact() {
     }
   }
   let best = null;
-  let bestD = 42;
+  let bestD = 80;
   for (const g of ground) {
     const d = Math.hypot(g.x - player.x, g.y - player.y);
     if (d < bestD) {
@@ -629,7 +640,7 @@ function useSelected() {
 function dropSelected() {
   const item = inv[selected];
   if (!item) return;
-  const copy = { ...item, x: player.x + Math.cos(player.facing) * 28, y: player.y + Math.sin(player.facing) * 28 };
+  const copy = { ...item, x: player.x + Math.cos(player.facing) * 52, y: player.y + Math.sin(player.facing) * 52 };
   removeItem(item);
   ground.push(copy);
   toast("바닥에 내려놓았다.");
@@ -720,7 +731,7 @@ function movePlayer(dt) {
   const len = Math.hypot(x, y);
   if (!len) return;
   const boost = performance.now() < state.boostUntil ? 1.5 : 1;
-  const speed = (state.phase === "lobby" ? 190 : 168) * boost;
+  const speed = (state.phase === "lobby" ? 240 : 230) * boost;
   const dx = (x / len) * speed * dt;
   const dy = (y / len) * speed * dt;
   player.facing = Math.atan2(y, x);
@@ -789,13 +800,13 @@ function updateHud(lamp) {
 function promptText() {
   const loc = locate(player.x, player.y);
   if (loc.kind !== "room") {
-    const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 42);
+    const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 80);
     return g ? "E  줍기" : "";
   }
   const c = roomCenter(loc.id);
-  const near = Math.hypot(player.x - c.x, player.y - c.y) < 118;
+  const near = Math.hypot(player.x - c.x, player.y - c.y) < 200;
   if (!near) {
-    const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 42);
+    const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 80);
     return g ? "E  줍기" : "";
   }
   if (loc.id === "electrical") return sim.power ? "전력 정상" : "E  전선 연결";
@@ -809,6 +820,7 @@ function promptText() {
 function drawActor(x, y, facing, color, alive) {
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(1.7, 1.7);
   ctx.fillStyle = "rgba(0,0,0,0.45)";
   ctx.beginPath();
   ctx.ellipse(0, 14, 12, 5, 0, 0, Math.PI * 2);
@@ -844,6 +856,7 @@ function drawMonster(x, y, now, i) {
   const flick = 0.28 + Math.sin(now / 70 + i) * 0.08;
   ctx.save();
   ctx.translate(x, y + Math.sin(now / 120 + i) * 2);
+  ctx.scale(1.8, 1.8);
   ctx.globalAlpha = flick;
   ctx.fillStyle = "#d9d3c7";
   ctx.beginPath();
@@ -863,7 +876,7 @@ function inCone(px, py, facing, mx, my) {
   const dx = mx - px;
   const dy = my - py;
   const dist = Math.hypot(dx, dy);
-  if (dist > 310) return false;
+  if (dist > 680) return false;
   const ang = Math.atan2(dy, dx);
   const delta = Math.atan2(Math.sin(ang - facing), Math.cos(ang - facing));
   return Math.abs(delta) < 0.5;
@@ -876,7 +889,7 @@ function animateGhosts(dt) {
     seen.add(m.id);
     const target = anchorOf(m.place);
     let g = ghosts.get(m.id);
-    if (!g || Math.hypot(target.x - g.x, target.y - g.y) > 180) {
+    if (!g || Math.hypot(target.x - g.x, target.y - g.y) > 900) {
       g = { x: target.x, y: target.y };
       ghosts.set(m.id, g);
     }
@@ -896,7 +909,7 @@ function drawDark(w, h, lamp, now) {
   ctx.fillStyle = `rgba(0,0,0,${dark})`;
   ctx.fillRect(0, 0, w, h);
   ctx.globalCompositeOperation = "destination-out";
-  const rad = sim.power ? 240 : 56;
+  const rad = sim.power ? 520 : 110;
   const g = ctx.createRadialGradient(px, py, rad * 0.15, px, py, rad);
   g.addColorStop(0, "rgba(0,0,0,1)");
   g.addColorStop(1, "rgba(0,0,0,0)");
@@ -908,7 +921,7 @@ function drawDark(w, h, lamp, now) {
     ctx.fillStyle = "rgba(0,0,0,0.95)";
     ctx.beginPath();
     ctx.moveTo(px, py);
-    ctx.arc(px, py, 320, player.facing - 0.48, player.facing + 0.48);
+    ctx.arc(px, py, 680, player.facing - 0.48, player.facing + 0.48);
     ctx.closePath();
     ctx.fill();
   }
@@ -929,14 +942,14 @@ function drawFacility(now, lamp) {
   ctx.drawImage(getFloorCanvas(), 0, 0);
   for (const g of ground) {
     ctx.fillStyle = MARK[g.type] || "#ccc";
-    ctx.fillRect(g.x - 8, g.y - 8, 16, 16);
-    ctx.font = '11px "IBM Plex Sans KR", sans-serif';
+    ctx.fillRect(g.x - 14, g.y - 14, 28, 28);
+    ctx.font = '18px "IBM Plex Sans KR", sans-serif';
     ctx.textAlign = "center";
     ctx.lineWidth = 3;
     ctx.strokeStyle = "#07080c";
-    ctx.strokeText(ITEM[g.type] || "", g.x, g.y - 14);
+    ctx.strokeText(ITEM[g.type] || "", g.x, g.y - 24);
     ctx.fillStyle = "#f4efe4";
-    ctx.fillText(ITEM[g.type] || "", g.x, g.y - 14);
+    ctx.fillText(ITEM[g.type] || "", g.x, g.y - 24);
   }
   for (const o of others()) drawActor(o.x, o.y, o.facing || 0, o.color || "#88a", o.alive !== false);
   ctx.restore();
@@ -1014,7 +1027,10 @@ function loop(now) {
     }
     if (state.roomData) renderLobby(state.roomData);
   } else if (state.phase === "play" || state.phase === "dead") {
-    if (state.phase === "play") movePlayer(dt);
+    if (state.phase === "play") {
+      movePlayer(dt);
+      tickTime(dt);
+    }
     const lamp = holdLamp(dt);
     animateGhosts(dt);
     if (sim) drawFacility(now, lamp);
@@ -1083,7 +1099,7 @@ function pollLobby() {
 }
 
 function goMenu() {
-  clearInterval(timer);
+  stopClock();
   state.phase = "menu";
   state.paused = false;
   state.launching = false;
