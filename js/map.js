@@ -41,20 +41,20 @@ export function roomCenter(id) {
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
 }
 
-function linkH(id, left, right) {
+function linkH(id, left, right, hall = HALL) {
   const a = byId[left];
   const b = byId[right];
   const x = a.x + a.w;
-  const y = a.y + a.h / 2 - HALL / 2;
-  return { id, a: left, b: right, x, y, w: b.x - x, h: HALL, kind: "rect" };
+  const y = a.y + a.h / 2 - hall / 2;
+  return { id, a: left, b: right, x, y, w: b.x - x, h: hall, kind: "rect" };
 }
 
-function linkV(id, top, bottom) {
+function linkV(id, top, bottom, hall = HALL) {
   const a = byId[top];
   const b = byId[bottom];
   const y = a.y + a.h;
-  const x = a.x + a.w / 2 - HALL / 2;
-  return { id, a: top, b: bottom, x, y, w: HALL, h: b.y - y, kind: "rect" };
+  const x = a.x + a.w / 2 - hall / 2;
+  return { id, a: top, b: bottom, x, y, w: hall, h: b.y - y, kind: "rect" };
 }
 
 const elec = byId.electrical;
@@ -91,7 +91,9 @@ export const CORRIDORS = [
 const ANNEX_COLS = [-4480, -3320, -2160, -1000];
 const ANNEX_ROWS = [-840, 140, 1120, 2100];
 
-function annexRoom(id, name, col, row, dress) {
+const ANNEX_HALL = 220;
+
+function annexRoom(id, name, col, row, dress, floor) {
   return {
     id,
     name,
@@ -102,27 +104,27 @@ function annexRoom(id, name, col, row, dress) {
     w: RW,
     h: RH,
     skip: 0.15,
-    floor: "#5a636c",
+    floor,
     accent: "#b7c0c8",
     dress,
   };
 }
 
 export const ANNEX = [
-  annexRoom("watch", "관측대", 3, 0, "console"),
-  annexRoom("upper", "상부관", 3, 1, "pipe"),
-  annexRoom("gate", "개폐실", 3, 2, "console"),
-  annexRoom("drain", "배수실", 3, 3, "pipe"),
-  annexRoom("vent", "환기실", 2, 0, "pipe"),
-  annexRoom("pump", "펌프실", 2, 1, "tank"),
-  annexRoom("store", "보관고", 2, 2, "crate"),
-  annexRoom("kiln", "소각실", 2, 3, "tank"),
-  annexRoom("cool", "냉각실", 1, 0, "tank"),
-  annexRoom("filter", "여과실", 1, 1, "pipe"),
-  annexRoom("archive", "기록고", 1, 2, "crate"),
-  annexRoom("settle", "침전조", 1, 3, "tank"),
-  annexRoom("spare", "예비실", 0, 1, "crate"),
-  annexRoom("hold", "격납고", 0, 2, "crate"),
+  annexRoom("watch", "관측대", 3, 0, "console", "#6a7c8a"),
+  annexRoom("upper", "상부관", 3, 1, "pipe", "#7a6a58"),
+  annexRoom("gate", "개폐실", 3, 2, "console", "#6d7a68"),
+  annexRoom("drain", "배수실", 3, 3, "pipe", "#5d7380"),
+  annexRoom("vent", "환기실", 2, 0, "pipe", "#7a685c"),
+  annexRoom("pump", "펌프실", 2, 1, "tank", "#5e7890"),
+  annexRoom("store", "보관고", 2, 2, "crate", "#8a7356"),
+  annexRoom("kiln", "소각실", 2, 3, "tank", "#8a5c56"),
+  annexRoom("cool", "냉각실", 1, 0, "tank", "#5a86a0"),
+  annexRoom("filter", "여과실", 1, 1, "pipe", "#6a8468"),
+  annexRoom("archive", "기록고", 1, 2, "crate", "#7a6a84"),
+  annexRoom("settle", "침전조", 1, 3, "tank", "#5a7a72"),
+  annexRoom("spare", "예비실", 0, 1, "crate", "#8a7a62"),
+  annexRoom("hold", "격납고", 0, 2, "crate", "#6a7490"),
 ];
 
 for (const room of ANNEX) byId[room.id] = room;
@@ -132,28 +134,31 @@ function tagAnnex(c) {
   return c;
 }
 
+const gardenLink = linkH("h-garden-annex", "gate", "garden", ANNEX_HALL);
+gardenLink.w += 56;
+
 const annexCorridors = [
-  tagAnnex(linkH("h-garden-annex", "gate", "garden")),
-  tagAnnex(linkV("v-watch-upper", "watch", "upper")),
-  tagAnnex(linkV("v-annex-lever", "upper", "gate")),
-  tagAnnex(linkV("v-gate-drain", "gate", "drain")),
-  tagAnnex(linkV("v-vent-pump", "vent", "pump")),
-  tagAnnex(linkV("v-pump-store", "pump", "store")),
-  tagAnnex(linkV("v-store-kiln", "store", "kiln")),
-  tagAnnex(linkV("v-cool-filter", "cool", "filter")),
-  tagAnnex(linkV("v-filter-archive", "filter", "archive")),
-  tagAnnex(linkV("v-archive-settle", "archive", "settle")),
-  tagAnnex(linkV("v-spare-hold", "spare", "hold")),
-  tagAnnex(linkH("h-cool-vent", "cool", "vent")),
-  tagAnnex(linkH("h-vent-watch", "vent", "watch")),
-  tagAnnex(linkH("h-spare-filter", "spare", "filter")),
-  tagAnnex(linkH("h-filter-pump", "filter", "pump")),
-  tagAnnex(linkH("h-pump-upper", "pump", "upper")),
-  tagAnnex(linkH("h-hold-archive", "hold", "archive")),
-  tagAnnex(linkH("h-archive-store", "archive", "store")),
-  tagAnnex(linkH("h-store-gate", "store", "gate")),
-  tagAnnex(linkH("h-settle-kiln", "settle", "kiln")),
-  tagAnnex(linkH("h-kiln-drain", "kiln", "drain")),
+  tagAnnex(gardenLink),
+  tagAnnex(linkV("v-watch-upper", "watch", "upper", ANNEX_HALL)),
+  tagAnnex(linkV("v-annex-lever", "upper", "gate", ANNEX_HALL)),
+  tagAnnex(linkV("v-gate-drain", "gate", "drain", ANNEX_HALL)),
+  tagAnnex(linkV("v-vent-pump", "vent", "pump", ANNEX_HALL)),
+  tagAnnex(linkV("v-pump-store", "pump", "store", ANNEX_HALL)),
+  tagAnnex(linkV("v-store-kiln", "store", "kiln", ANNEX_HALL)),
+  tagAnnex(linkV("v-cool-filter", "cool", "filter", ANNEX_HALL)),
+  tagAnnex(linkV("v-filter-archive", "filter", "archive", ANNEX_HALL)),
+  tagAnnex(linkV("v-archive-settle", "archive", "settle", ANNEX_HALL)),
+  tagAnnex(linkV("v-spare-hold", "spare", "hold", ANNEX_HALL)),
+  tagAnnex(linkH("h-cool-vent", "cool", "vent", ANNEX_HALL)),
+  tagAnnex(linkH("h-vent-watch", "vent", "watch", ANNEX_HALL)),
+  tagAnnex(linkH("h-spare-filter", "spare", "filter", ANNEX_HALL)),
+  tagAnnex(linkH("h-filter-pump", "filter", "pump", ANNEX_HALL)),
+  tagAnnex(linkH("h-pump-upper", "pump", "upper", ANNEX_HALL)),
+  tagAnnex(linkH("h-hold-archive", "hold", "archive", ANNEX_HALL)),
+  tagAnnex(linkH("h-archive-store", "archive", "store", ANNEX_HALL)),
+  tagAnnex(linkH("h-store-gate", "store", "gate", ANNEX_HALL)),
+  tagAnnex(linkH("h-settle-kiln", "settle", "kiln", ANNEX_HALL)),
+  tagAnnex(linkH("h-kiln-drain", "kiln", "drain", ANNEX_HALL)),
 ];
 
 let annexOpen = false;
@@ -828,9 +833,11 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
     ctx.lineTo(DIAG.x2, DIAG.y2);
     ctx.stroke();
   }
-  ctx.fillStyle = "#4e565f";
+  ctx.fillStyle = world === 1 ? "#9aa6b2" : "#4e565f";
   for (const c of frame.halls) {
-    if (c.kind === "rect") ctx.fillRect(c.x, c.y, c.w, c.h);
+    if (c.kind !== "rect") continue;
+    const padHall = world === 1 ? 18 : 0;
+    ctx.fillRect(c.x - padHall, c.y - padHall, c.w + padHall * 2, c.h + padHall * 2);
   }
   for (const room of frame.rooms) {
     ctx.fillStyle = "#8b939c";
