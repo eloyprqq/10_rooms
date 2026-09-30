@@ -216,8 +216,8 @@ button { cursor: pointer; }
   position: absolute;
   top: 16px;
   right: 16px;
-  width: 228px;
-  height: 168px;
+  width: 340px;
+  height: 150px;
   border: 3px solid #9aa3ae;
   border-radius: 12px;
   background: #171b22;
@@ -226,7 +226,7 @@ button { cursor: pointer; }
 
 #net-pill, #mute-btn {
   position: absolute;
-  top: 196px;
+  top: 178px;
   right: 16px;
 }
 

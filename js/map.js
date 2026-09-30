@@ -665,9 +665,9 @@ export function annexLayer() {
   return annexCache;
 }
 
-function worldFrame(world) {
-  const rooms = world === 1 ? ANNEX : ROOMS;
-  const halls = world === 1 ? annexCorridors : CORRIDORS.filter((c) => !c.world);
+function worldFrame(mode) {
+  const rooms = mode === "both" ? ROOMS.concat(ANNEX) : mode === 1 ? ANNEX : ROOMS;
+  const halls = mode === "both" ? CORRIDORS : mode === 1 ? annexCorridors : CORRIDORS.filter((c) => !c.world);
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -811,7 +811,8 @@ export function drawSchematic(ctx, w, h, player, others = []) {
 }
 
 export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
-  const frame = worldFrame(world === 1 ? 1 : 0);
+  const showBoth = annexIsOpen();
+  const frame = worldFrame(showBoth ? "both" : world === 1 ? 1 : 0);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#171b22";
   ctx.fillRect(0, 0, w, h);
@@ -824,7 +825,7 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
   ctx.save();
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
-  if (world !== 1) {
+  if (showBoth || world !== 1) {
     ctx.lineCap = "butt";
     ctx.strokeStyle = "#3a414a";
     ctx.lineWidth = DIAG.half * 2;
@@ -833,14 +834,15 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
     ctx.lineTo(DIAG.x2, DIAG.y2);
     ctx.stroke();
   }
-  ctx.fillStyle = world === 1 ? "#9aa6b2" : "#4e565f";
   for (const c of frame.halls) {
     if (c.kind !== "rect") continue;
-    const padHall = world === 1 ? 18 : 0;
+    const west = c.world === 1;
+    ctx.fillStyle = west ? "#c5ced6" : "#4e565f";
+    const padHall = west ? 8 : 0;
     ctx.fillRect(c.x - padHall, c.y - padHall, c.w + padHall * 2, c.h + padHall * 2);
   }
   for (const room of frame.rooms) {
-    ctx.fillStyle = "#8b939c";
+    ctx.fillStyle = room.world === 1 ? "#d5dde4" : "#8b939c";
     ctx.fillRect(room.x, room.y, room.w, room.h);
     ctx.strokeStyle = "#2a3038";
     ctx.lineWidth = 18;
