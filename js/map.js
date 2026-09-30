@@ -88,7 +88,89 @@ export const CORRIDORS = [
   DIAG,
 ];
 
+const ANNEX_COLS = [-4480, -3320, -2160, -1000];
+const ANNEX_ROWS = [-840, 140, 1120, 2100];
+
+function annexRoom(id, name, col, row, dress) {
+  return {
+    id,
+    name,
+    num: 0,
+    world: 1,
+    x: ANNEX_COLS[col],
+    y: ANNEX_ROWS[row],
+    w: RW,
+    h: RH,
+    skip: 0.15,
+    floor: "#5a636c",
+    accent: "#b7c0c8",
+    dress,
+  };
+}
+
+export const ANNEX = [
+  annexRoom("watch", "관측대", 3, 0, "console"),
+  annexRoom("upper", "상부관", 3, 1, "pipe"),
+  annexRoom("gate", "개폐실", 3, 2, "console"),
+  annexRoom("drain", "배수실", 3, 3, "pipe"),
+  annexRoom("vent", "환기실", 2, 0, "pipe"),
+  annexRoom("pump", "펌프실", 2, 1, "tank"),
+  annexRoom("store", "보관고", 2, 2, "crate"),
+  annexRoom("kiln", "소각실", 2, 3, "tank"),
+  annexRoom("cool", "냉각실", 1, 0, "tank"),
+  annexRoom("filter", "여과실", 1, 1, "pipe"),
+  annexRoom("archive", "기록고", 1, 2, "crate"),
+  annexRoom("settle", "침전조", 1, 3, "tank"),
+  annexRoom("spare", "예비실", 0, 1, "crate"),
+  annexRoom("hold", "격납고", 0, 2, "crate"),
+];
+
+for (const room of ANNEX) byId[room.id] = room;
+
+function tagAnnex(c) {
+  c.world = 1;
+  return c;
+}
+
+const annexCorridors = [
+  tagAnnex(linkH("h-garden-annex", "gate", "garden")),
+  tagAnnex(linkV("v-watch-upper", "watch", "upper")),
+  tagAnnex(linkV("v-annex-lever", "upper", "gate")),
+  tagAnnex(linkV("v-gate-drain", "gate", "drain")),
+  tagAnnex(linkV("v-vent-pump", "vent", "pump")),
+  tagAnnex(linkV("v-pump-store", "pump", "store")),
+  tagAnnex(linkV("v-store-kiln", "store", "kiln")),
+  tagAnnex(linkV("v-cool-filter", "cool", "filter")),
+  tagAnnex(linkV("v-filter-archive", "filter", "archive")),
+  tagAnnex(linkV("v-archive-settle", "archive", "settle")),
+  tagAnnex(linkV("v-spare-hold", "spare", "hold")),
+  tagAnnex(linkH("h-cool-vent", "cool", "vent")),
+  tagAnnex(linkH("h-vent-watch", "vent", "watch")),
+  tagAnnex(linkH("h-spare-filter", "spare", "filter")),
+  tagAnnex(linkH("h-filter-pump", "filter", "pump")),
+  tagAnnex(linkH("h-pump-upper", "pump", "upper")),
+  tagAnnex(linkH("h-hold-archive", "hold", "archive")),
+  tagAnnex(linkH("h-archive-store", "archive", "store")),
+  tagAnnex(linkH("h-store-gate", "store", "gate")),
+  tagAnnex(linkH("h-settle-kiln", "settle", "kiln")),
+  tagAnnex(linkH("h-kiln-drain", "kiln", "drain")),
+];
+
+let annexOpen = false;
+let annexCache = null;
+
 const corrById = Object.fromEntries(CORRIDORS.map((c) => [c.id, c]));
+
+const WORLD0 = {
+  minX: 40,
+  minY: 20,
+  maxX: COLS[3] + RW + 80,
+  maxY: ROWS[2] + RH + 80,
+};
+
+function activeRooms() {
+  return annexOpen ? ROOMS.concat(ANNEX) : ROOMS;
+}
 
 export function corridorById(id) {
   return corrById[id];
@@ -163,7 +245,7 @@ export function locate(x, y) {
   if (d.dist <= DIAG.half - 6 && d.t > 0.07 && d.t < 0.93) {
     return { kind: "corridor", id: DIAG.id };
   }
-  for (const room of ROOMS) {
+  for (const room of activeRooms()) {
     if (inRect(x, y, room)) return { kind: "room", id: room.id };
   }
   for (const c of CORRIDORS) {
@@ -181,7 +263,7 @@ function hallWalkRect(c) {
 
 export function isWalkable(x, y) {
   const pad = 12;
-  for (const room of ROOMS) {
+  for (const room of activeRooms()) {
     if (inRect(x, y, room, -pad)) return true;
   }
   for (const c of CORRIDORS) {
@@ -445,7 +527,166 @@ function drawProps(ctx, room) {
     ctx.lineWidth = 4;
     ctx.strokeRect(room.x + WALL + 8, room.y + WALL + 8, room.w - (WALL + 8) * 2, room.h - (WALL + 8) * 2);
     ctx.lineWidth = 2;
+  } else if (room.world === 1) {
+    dressAnnex(ctx, room, x, y, r, b);
   }
+}
+
+function dressAnnex(ctx, room, x, y, r, b) {
+  if (room.dress === "crate") {
+    crate(ctx, x, y);
+    crate(ctx, x + 56, y + 10);
+    crate(ctx, r - 50, b - 44);
+  } else if (room.dress === "tank") {
+    const cx = room.x + room.w / 2;
+    const cy = room.y + room.h / 2;
+    ctx.fillStyle = "#3a434d";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 46, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#9aa6b2";
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    consoleBox(ctx, x, b - 58, 120, 52, "#7eb8c8");
+  } else if (room.dress === "pipe") {
+    wireRun(ctx, [[x, y + 20], [r - 40, y + 20], [r - 40, b - 30]], "#8aa0b0");
+    wireRun(ctx, [[x + 30, y + 70], [x + 180, y + 110], [x + 180, b - 20]], "#c45a4a");
+    consoleBox(ctx, r - 140, y, 110, 54, "#8eb0d0");
+  } else {
+    consoleBox(ctx, x, y, 160, 70, "#9fd0c4");
+    chair(ctx, x + 36, y + 88);
+    chair(ctx, x + 90, y + 88);
+  }
+}
+
+export function annexIsOpen() {
+  return annexOpen;
+}
+
+export function openAnnex() {
+  if (annexOpen) return;
+  annexOpen = true;
+  for (const c of annexCorridors) {
+    CORRIDORS.push(c);
+    corrById[c.id] = c;
+  }
+  let minX = WORLD.minX;
+  let minY = WORLD.minY;
+  for (const room of ANNEX) {
+    minX = Math.min(minX, room.x - 80);
+    minY = Math.min(minY, room.y - 80);
+  }
+  WORLD.minX = minX;
+  WORLD.minY = minY;
+  floorCache = null;
+  annexCache = null;
+}
+
+export function resetAnnex() {
+  if (!annexOpen) return;
+  for (const c of annexCorridors) {
+    const i = CORRIDORS.indexOf(c);
+    if (i >= 0) CORRIDORS.splice(i, 1);
+    delete corrById[c.id];
+  }
+  annexOpen = false;
+  WORLD.minX = WORLD0.minX;
+  WORLD.minY = WORLD0.minY;
+  WORLD.maxX = WORLD0.maxX;
+  WORLD.maxY = WORLD0.maxY;
+  floorCache = null;
+  annexCache = null;
+}
+
+export function leverSpot() {
+  if (!annexOpen) return null;
+  const c = corrById["h-garden-annex"];
+  if (!c) return null;
+  return { x: c.x + c.w * 0.42, y: c.y + 34 };
+}
+
+export function whichWorld(x, y) {
+  if (!annexOpen) return 0;
+  return x < byId.garden.x - 4 ? 1 : 0;
+}
+
+function paintRoom(ctx, room) {
+  ctx.fillStyle = room.floor || FLOORS[room.id] || "#626a74";
+  ctx.fillRect(room.x, room.y, room.w, room.h);
+  fillPanels(ctx, room.x, room.y, room.w, room.h);
+  const doors = roomDoors(room);
+  drawWallSide(ctx, room, "n", doors.n);
+  drawWallSide(ctx, room, "s", doors.s);
+  drawWallSide(ctx, room, "w", doors.w);
+  drawWallSide(ctx, room, "e", doors.e);
+  drawProps(ctx, room);
+  const p = roomCenter(room.id);
+  ctx.fillStyle = "rgba(226, 232, 238, 0.78)";
+  ctx.font = '600 40px "IBM Plex Sans KR", "Malgun Gothic", sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(room.name, p.x, room.y + room.h - 78);
+}
+
+export function annexLayer() {
+  if (!annexOpen) return null;
+  if (annexCache) return annexCache;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const grow = (x, y) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  for (const room of ANNEX) {
+    grow(room.x - 8, room.y - 8);
+    grow(room.x + room.w + 8, room.y + room.h + 8);
+  }
+  for (const c of annexCorridors) {
+    grow(c.x - 30, c.y - 30);
+    grow(c.x + c.w + 30, c.y + c.h + 30);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(maxX - minX);
+  canvas.height = Math.ceil(maxY - minY);
+  const ctx = canvas.getContext("2d");
+  ctx.translate(-minX, -minY);
+  for (const c of annexCorridors) paintHall(ctx, c);
+  for (const room of ANNEX) paintRoom(ctx, room);
+  annexCache = { canvas, x: minX, y: minY };
+  return annexCache;
+}
+
+function worldFrame(world) {
+  const rooms = world === 1 ? ANNEX : ROOMS;
+  const halls = world === 1 ? annexCorridors : CORRIDORS.filter((c) => !c.world);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const grow = (x, y) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  for (const room of rooms) {
+    grow(room.x, room.y);
+    grow(room.x + room.w, room.y + room.h);
+  }
+  for (const c of halls) {
+    if (c.kind === "diag") {
+      grow(Math.min(c.x1, c.x2), Math.min(c.y1, c.y2));
+      grow(Math.max(c.x1, c.x2), Math.max(c.y1, c.y2));
+    } else {
+      grow(c.x, c.y);
+      grow(c.x + c.w, c.y + c.h);
+    }
+  }
+  return { minX: minX - 48, minY: minY - 48, maxX: maxX + 48, maxY: maxY + 48, rooms, halls };
 }
 
 export function getFloorCanvas() {
@@ -564,29 +805,34 @@ export function drawSchematic(ctx, w, h, player, others = []) {
   if (player) dot(player.x, player.y, "#9a2430", "나");
 }
 
-export function drawMinimap(ctx, w, h, player, monsters = []) {
+export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
+  const frame = worldFrame(world === 1 ? 1 : 0);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#171b22";
   ctx.fillRect(0, 0, w, h);
-  const pad = 14;
-  const scale = Math.min((w - pad * 2) / (WORLD.maxX - 20), (h - pad * 2) / (WORLD.maxY - 10));
-  const ox = (w - WORLD.maxX * scale) / 2;
-  const oy = (h - WORLD.maxY * scale) / 2;
+  const pad = 18;
+  const spanX = Math.max(1, frame.maxX - frame.minX);
+  const spanY = Math.max(1, frame.maxY - frame.minY);
+  const scale = Math.min((w - pad * 2) / spanX, (h - pad * 2) / spanY);
+  const ox = (w - spanX * scale) / 2 - frame.minX * scale;
+  const oy = (h - spanY * scale) / 2 - frame.minY * scale;
   ctx.save();
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
-  ctx.lineCap = "butt";
-  ctx.strokeStyle = "#3a414a";
-  ctx.lineWidth = DIAG.half * 2;
-  ctx.beginPath();
-  ctx.moveTo(DIAG.x1, DIAG.y1);
-  ctx.lineTo(DIAG.x2, DIAG.y2);
-  ctx.stroke();
+  if (world !== 1) {
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = "#3a414a";
+    ctx.lineWidth = DIAG.half * 2;
+    ctx.beginPath();
+    ctx.moveTo(DIAG.x1, DIAG.y1);
+    ctx.lineTo(DIAG.x2, DIAG.y2);
+    ctx.stroke();
+  }
   ctx.fillStyle = "#4e565f";
-  for (const c of CORRIDORS) {
+  for (const c of frame.halls) {
     if (c.kind === "rect") ctx.fillRect(c.x, c.y, c.w, c.h);
   }
-  for (const room of ROOMS) {
+  for (const room of frame.rooms) {
     ctx.fillStyle = "#8b939c";
     ctx.fillRect(room.x, room.y, room.w, room.h);
     ctx.strokeStyle = "#2a3038";
@@ -594,6 +840,11 @@ export function drawMinimap(ctx, w, h, player, monsters = []) {
     ctx.strokeRect(room.x, room.y, room.w, room.h);
   }
   ctx.restore();
+  ctx.fillStyle = "#d7dde6";
+  ctx.font = '700 12px "IBM Plex Sans KR", sans-serif';
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(world === 1 ? "WORLD 1" : "WORLD 0", 8, 6);
   const mark = (x, y, color, radius) => {
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -603,7 +854,8 @@ export function drawMinimap(ctx, w, h, player, monsters = []) {
     ctx.lineWidth = 2;
     ctx.stroke();
   };
-  for (const m of monsters) mark(m.x, m.y, "#e23b3b", 5);
+  const inside = (x, y) => x >= frame.minX && y >= frame.minY && x <= frame.maxX && y <= frame.maxY;
+  for (const m of monsters) if (inside(m.x, m.y)) mark(m.x, m.y, "#e23b3b", 5);
   if (player) mark(player.x, player.y, "#f2f6fb", 6);
 }
 

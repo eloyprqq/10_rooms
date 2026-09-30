@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD } from "./map.js?v=24";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=24";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=24";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=24";
-import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=24";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=24";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld } from "./map.js?v=25";
+import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=25";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=25";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=25";
+import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=25";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=25";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -29,6 +29,12 @@ const MARK = {
   bandage: "#d7d0c8",
 };
 
+const PING = {
+  danger: { label: "위험", color: "#e23b3b" },
+  here: { label: "여기", color: "#e2c14a" },
+  follow: { label: "따라와", color: "#7ec8c8" },
+};
+
 const LOBBY = { x: 160, y: 150, w: 900, h: 440 };
 const SUPPLY_MS = 20000;
 
@@ -45,13 +51,16 @@ const state = {
   supplyCd: {},
   cctvReadyAt: 0,
   cctvItem: null,
-  seen: { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0 },
+  seen: { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0 },
   taskSig: null,
   roomData: null,
   lastPush: 0,
   menuPan: 0,
   boostUntil: 0,
   lampAcc: 0,
+  lampOn: false,
+  ping: null,
+  pingAt: 0,
   shake: 0,
   dirty: true,
   clockMood: "",
@@ -315,6 +324,8 @@ function publish() {
     history: sim.history,
     tasks: (sim.doneTasks || []).slice(),
     dataGot: (sim.dataGot || []).slice(),
+    worldOpen: !!sim.worldOpen,
+    reactorHalted: !!sim.reactorHalted,
     beat: Date.now(),
   });
 }
@@ -428,6 +439,7 @@ function catchUp(world) {
     state.applied = world.time || 1;
     state.synced = true;
     applyWorldMission(world);
+    applyFacility(world);
     return;
   }
   for (const snap of world.history || []) consume(snap);
@@ -435,7 +447,71 @@ function catchUp(world) {
   sim.power = world.power !== false;
   sim.reactor = world.reactor || null;
   applyWorldMission(world);
+  applyFacility(world);
   if (world.meltdown && state.phase === "play" && player.alive) hurt(9999, "meltdown");
+}
+
+function revealAnnex() {
+  if (!sim || annexIsOpen()) return false;
+  sim.worldOpen = true;
+  openAnnex();
+  return true;
+}
+
+function noteProgress() {
+  if (!sim || sim.worldOpen || (sim.doneTasks || []).length < TASKS.length) return;
+  sim.worldOpen = true;
+  revealAnnex();
+  toast("모든 미션을 마쳤다. 정원 서쪽에 통로가 열렸다.");
+}
+
+function applyFacility(world) {
+  if (!world || !sim) return;
+  if (world.worldOpen && revealAnnex() && state.phase === "play" && !amHost()) {
+    toast("정원 서쪽에 통로가 열렸다.");
+  }
+  if (world.reactorHalted && !sim.reactorHalted) {
+    sim.reactorHalted = true;
+    sim.reactor = null;
+    if (state.phase === "play") toast("원자로 가동이 멈췄다. 이제는 폭파하지 않는다.");
+  }
+}
+
+function haltReactor() {
+  if (!sim || sim.reactorHalted) return;
+  sim.reactorHalted = true;
+  sim.reactor = null;
+  toast("원자로 가동이 멈췄다. 이제는 폭파하지 않는다.");
+  if (state.multi && amHost()) publish();
+}
+
+function requestHalt() {
+  if (!sim || sim.reactorHalted) {
+    toast("레버는 이미 내려가 있다.");
+    return;
+  }
+  if (state.multi && !amHost()) {
+    signal({ leverAt: Date.now() });
+    toast("레버를 내렸다.");
+    return;
+  }
+  haltReactor();
+}
+
+function nearLever() {
+  const spot = leverSpot();
+  if (!spot) return false;
+  return Math.hypot(player.x - spot.x, player.y - spot.y) < 78;
+}
+
+function sendPing(kind) {
+  if (state.phase !== "play" || state.paused || !PING[kind]) return;
+  const now = Date.now();
+  if (now - state.pingAt < 1200) return;
+  state.pingAt = now;
+  state.ping = { kind, at: now, x: player.x, y: player.y, name: state.name };
+  pushPresence();
+  toast(PING[kind].label);
 }
 
 function pushPresence() {
@@ -453,10 +529,16 @@ function pushPresence() {
     hall: loc.kind === "corridor" ? loc.id : "",
     corpseX: player.corpse ? Math.round(player.corpse.x) : "",
     corpseY: player.corpse ? Math.round(player.corpse.y) : "",
+    lamp: !!state.lampOn,
+    ping: state.ping?.kind || "",
+    pingAt: state.ping?.at || 0,
+    pingX: state.ping ? Math.round(state.ping.x) : "",
+    pingY: state.ping ? Math.round(state.ping.y) : "",
   });
 }
 
 function resetRun(difficulty) {
+  resetAnnex();
   closeMinigames();
   closeMission();
   hide("map-overlay");
@@ -478,7 +560,10 @@ function resetRun(difficulty) {
   state.applied = 1;
   state.synced = false;
   state.boostUntil = 0;
-  state.seen = { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0 };
+  state.seen = { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0 };
+  state.lampOn = false;
+  state.ping = null;
+  state.pingAt = 0;
   state.taskSig = null;
   player.hp = 100;
   player.alive = true;
@@ -619,9 +704,10 @@ function finishTask(roomId) {
   if (roomId === "shields") sim.shieldsAt = performance.now();
   const task = TASKS.find((item) => item.id === roomId);
   const line = task?.id.startsWith("data:") ? `${task.name} 데이터를 올렸다.` : `${task.name} · ${task.title} 완료.`;
-  toast(sim.doneTasks.length >= TASKS.length ? "모든 미션을 마쳤다." : line);
+  if ((sim.doneTasks || []).length >= TASKS.length) noteProgress();
+  else toast(line);
   updateTaskbar();
-  if (state.multi) publish();
+  if (state.multi && amHost()) publish();
 }
 
 function noteDownload(roomId) {
@@ -663,7 +749,7 @@ function syncTasks(list) {
   sim.doneTasks = list.slice();
   if (state.phase === "play") {
     const added = sim.doneTasks.filter((id) => !prev.has(id));
-    if (prev.size < TASKS.length && sim.doneTasks.length >= TASKS.length) toast("모든 미션을 마쳤다.");
+    if (prev.size < TASKS.length && sim.doneTasks.length >= TASKS.length) noteProgress();
     else if (added.length) {
       const task = TASKS.find((item) => item.id === added[added.length - 1]);
       if (task) toast(`${task.name} 미션 완료.`);
@@ -757,6 +843,10 @@ function takeGround(best) {
 
 function interact() {
   if (state.phase !== "play" || !player.alive || busy()) return;
+  if (nearLever()) {
+    requestHalt();
+    return;
+  }
   const loc = locate(player.x, player.y);
   if (loc.kind === "room") {
     const c = roomCenter(loc.id);
@@ -936,6 +1026,10 @@ function onRoom(data) {
         sim.reactor = null;
         publish();
       }
+      if (data.leverAt && data.leverAt !== state.seen.lever) {
+        state.seen.lever = data.leverAt;
+        haltReactor();
+      }
       if (data.taskAt && data.taskAt !== state.seen.task && data.taskRoom) {
         state.seen.task = data.taskAt;
         if (data.taskKind === "download") noteDownload(data.taskRoom);
@@ -1022,6 +1116,7 @@ function lobbyWalk(x, y) {
 function holdLamp(dt) {
   const item = inv[selected];
   const on = item && item.type === "flashlight" && item.dura > 0 && (pointer || keys.has("KeyF")) && state.phase === "play" && player.alive && !state.paused;
+  state.lampOn = !!on;
   if (!on) return false;
   state.lampAcc += dt;
   while (state.lampAcc >= 0.1) {
@@ -1029,6 +1124,7 @@ function holdLamp(dt) {
     item.dura -= 3;
     if (item.dura <= 0) {
       item.dura = 0;
+      state.lampOn = false;
       removeItem(item);
       toast("손전등이 꺼졌다.");
       return false;
@@ -1081,7 +1177,8 @@ function updateHud(lamp) {
 }
 
 function promptText() {
-  if (isGhost()) return "유령 · 벽을 통과한다";
+  if (isGhost()) return "유령 · Z 위험 · X 여기 · C 따라와";
+  if (nearLever()) return sim.reactorHalted ? "레버는 내려가 있다" : "E  레버를 내리다";
   const loc = locate(player.x, player.y);
   if (loc.kind !== "room") {
     const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 80);
@@ -1290,11 +1387,17 @@ function drawDark(w, h, lamp, now) {
   o.beginPath();
   o.arc(px, py, rad, 0, Math.PI * 2);
   o.fill();
-  if (lamp) {
+  const cones = [];
+  if (lamp) cones.push({ x: px, y: py, facing: player.facing });
+  for (const person of others()) {
+    if (person.alive === false || !person.lamp) continue;
+    cones.push({ x: person.x - cam.x, y: person.y - cam.y, facing: person.facing || 0 });
+  }
+  for (const cone of cones) {
     o.fillStyle = "rgba(0,0,0,0.95)";
     o.beginPath();
-    o.moveTo(px, py);
-    o.arc(px, py, 680, player.facing - 0.48, player.facing + 0.48);
+    o.moveTo(cone.x, cone.y);
+    o.arc(cone.x, cone.y, 680, cone.facing - 0.48, cone.facing + 0.48);
     o.closePath();
     o.fill();
   }
@@ -1314,6 +1417,9 @@ function drawFacility(now, lamp) {
   ctx.save();
   ctx.translate(-cam.x + shakeX, -cam.y + shakeY);
   ctx.drawImage(getFloorCanvas(), 0, 0);
+  const annex = annexLayer();
+  if (annex) ctx.drawImage(annex.canvas, annex.x, annex.y);
+  drawLever();
   for (const g of ground) {
     ctx.fillStyle = MARK[g.type] || "#ccc";
     ctx.fillRect(g.x - 14, g.y - 14, 28, 28);
@@ -1340,19 +1446,95 @@ function drawFacility(now, lamp) {
     if (o.alive === false) drawGhost(o.x - cam.x, o.y - cam.y, o.facing || 0, o.color || "#88a", now);
   }
   drawShieldLights(now);
-  if (lamp || state.admin) {
-    for (const m of sim.monsters) {
-      const g = ghosts.get(m.id) || anchorOf(m.place);
-      if (!state.admin && !inCone(player.x, player.y, player.facing, g.x, g.y)) continue;
-      drawMonster(g.x - cam.x, g.y - cam.y, now, m.id, state.admin);
-    }
+  drawPings();
+  for (const m of sim.monsters) {
+    const g = ghosts.get(m.id) || anchorOf(m.place);
+    if (!monsterLit(g.x, g.y)) continue;
+    drawMonster(g.x - cam.x, g.y - cam.y, now, m.id, state.admin);
   }
   const mini = $("minimap");
   if (mini) {
     const marks = state.admin
       ? sim.monsters.map((m) => ghosts.get(m.id) || anchorOf(m.place))
       : [];
-    drawMinimap(mini.getContext("2d"), mini.width, mini.height, player, marks);
+    drawMinimap(mini.getContext("2d"), mini.width, mini.height, player, marks, whichWorld(player.x, player.y));
+  }
+}
+
+function monsterLit(x, y) {
+  if (state.admin) return true;
+  if (state.lampOn && inCone(player.x, player.y, player.facing, x, y)) return true;
+  for (const o of others()) {
+    if (o.alive === false || !o.lamp) continue;
+    if (inCone(o.x, o.y, o.facing || 0, x, y)) return true;
+  }
+  return false;
+}
+
+function drawLever() {
+  const spot = leverSpot();
+  if (!spot) return;
+  const down = !!sim?.reactorHalted;
+  const angle = down ? 0.95 : -0.75;
+  const hx = Math.sin(angle) * 34;
+  const hy = -Math.cos(angle) * 34;
+  ctx.save();
+  ctx.translate(spot.x, spot.y);
+  ctx.fillStyle = "#23282f";
+  ctx.fillRect(-18, 6, 36, 64);
+  ctx.fillStyle = "#8b949f";
+  ctx.fillRect(-18, 6, 36, 6);
+  ctx.strokeStyle = "#d7c4a3";
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, 58);
+  ctx.lineTo(hx, 58 + hy);
+  ctx.stroke();
+  ctx.fillStyle = down ? "#7f8c78" : "#e2c14a";
+  ctx.beginPath();
+  ctx.arc(hx, 58 + hy, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawPings() {
+  const now = Date.now();
+  const list = [];
+  if (state.ping && now - state.ping.at < 4000) list.push(state.ping);
+  for (const o of others()) {
+    if (!o.ping || !o.pingAt || now - Number(o.pingAt) >= 4000) continue;
+    list.push({
+      kind: o.ping,
+      at: Number(o.pingAt),
+      x: Number(o.pingX),
+      y: Number(o.pingY),
+      name: o.name || "동료",
+    });
+  }
+  for (const p of list) {
+    const spec = PING[p.kind];
+    if (!spec || Number.isNaN(p.x) || Number.isNaN(p.y)) continue;
+    const age = now - p.at;
+    const x = p.x - cam.x;
+    const y = p.y - cam.y;
+    ctx.save();
+    ctx.globalAlpha = age > 3200 ? Math.max(0, 1 - (age - 3200) / 800) : 1;
+    ctx.strokeStyle = spec.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, 16, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = spec.color;
+    ctx.font = '700 16px "IBM Plex Sans KR", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillText(spec.label, x, y - 26);
+    if (p.name) {
+      ctx.fillStyle = "#f4efe4";
+      ctx.font = '13px "IBM Plex Sans KR", sans-serif';
+      ctx.fillText(p.name, x, y - 44);
+    }
+    ctx.restore();
   }
 }
 
@@ -1688,6 +1870,11 @@ function onKey(e) {
     return;
   }
   if (!$("map-overlay").classList.contains("hidden") || busy()) return;
+  if (state.phase === "play" && !state.paused) {
+    if (e.code === "KeyZ") sendPing("danger");
+    if (e.code === "KeyX") sendPing("here");
+    if (e.code === "KeyC") sendPing("follow");
+  }
   if (state.phase === "play" && player.alive && !state.paused) {
     if (e.code === "KeyE") interact();
     if (e.code === "KeyQ") dropSelected();

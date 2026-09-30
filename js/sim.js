@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=24";
+} from "./map.js?v=25";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -145,7 +145,11 @@ function stepToCorridor(monster, body, t, events, monsters = []) {
   }
 }
 
-function tryEnterRoom(monster, body, t, rng, events, monsters = []) {
+function pressureOf(state) {
+  return Math.min(1, (state.doneTasks || []).length / 14);
+}
+
+function tryEnterRoom(monster, body, t, rng, events, monsters = [], pressure = 0) {
   if (t < monster.lockUntil) return;
   if (monster.place.type !== "corridor") return;
   const corr = corridorById(monster.place.id);
@@ -160,12 +164,12 @@ function tryEnterRoom(monster, body, t, rng, events, monsters = []) {
   const roomId = options.find((id) => !used.has(`room:${id}`));
   if (!roomId) return;
   const room = roomById(roomId);
-  if (rng() < room.skip) {
+  if (rng() < room.skip * (1 - 0.65 * pressure)) {
     events.push({ t, type: "skip", monsterId: monster.id, room: roomId });
     return;
   }
   monster.place = { type: "room", id: roomId };
-  monster.lockUntil = t + 5;
+  monster.lockUntil = t + Math.max(2, Math.round(5 - 3 * pressure));
   monster.exposure = {};
   events.push({ t, type: "enter", monsterId: monster.id, room: roomId });
 }
@@ -197,6 +201,8 @@ export function createMatch(difficulty, rng = Math.random) {
     power: true,
     reactor: null,
     meltdown: false,
+    reactorHalted: false,
+    worldOpen: false,
     doneTasks: [],
     dataGot: [],
     shieldsAt: 0,
@@ -226,16 +232,19 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
   for (let t = state.time + 1; t <= next; t++) {
     const hits = [];
     if (t % 17 === 0) state.power = false;
-    if (t % 13 === 0 && !state.reactor && !state.meltdown) {
+    if (t % 13 === 0 && !state.reactor && !state.meltdown && !state.reactorHalted) {
       state.reactor = { start: t, deadlineAt: now + 40000 };
     }
 
     if (!state.meltdown && focusPool.length) {
+      const pressure = pressureOf(state);
       for (const monster of state.monsters) {
         const body = nearestLiving(monster, focusPool);
         if (!body) continue;
-        if (t % 4 === 0) tryEnterRoom(monster, body, t, rng, [], state.monsters);
-        else if (t % 2 === 0) stepToCorridor(monster, body, t, [], state.monsters);
+        if (t % 4 === 0) tryEnterRoom(monster, body, t, rng, [], state.monsters, pressure);
+        else if (t % 2 === 0 || (pressure >= 0.5 && t % 4 === 1) || (pressure >= 0.85 && t % 4 === 3)) {
+          stepToCorridor(monster, body, t, [], state.monsters);
+        }
       }
     }
 
