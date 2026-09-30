@@ -123,7 +123,7 @@ export const ANNEX = [
   annexRoom("filter", "여과실", 1, 1, "pipe", "#6a8468"),
   annexRoom("archive", "기록고", 1, 2, "crate", "#7a6a84"),
   annexRoom("settle", "침전조", 1, 3, "tank", "#5a7a72"),
-  annexRoom("spare", "예비실", 0, 1, "crate", "#8a7a62"),
+  annexRoom("spare", "무기고", 0, 1, "crate", "#8a7a62"),
   annexRoom("hold", "격납고", 0, 2, "crate", "#6a7490"),
 ];
 
