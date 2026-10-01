@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld } from "./map.js?v=28";
-import { createMatch, advance, scatterMonsters, applyMonsterView, rollDelta } from "./sim.js?v=28";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=28";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=28";
-import { TASKS, initMissions, openRoomTasks, closeMission, missionOpen, actionsFor } from "./missions.js?v=28";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=28";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=29";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=29";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=29";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=29";
+import { TASKS, ANNEX_TASKS, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=29";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=29";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -17,6 +17,7 @@ const ITEM = {
   cross: "십자가",
   clock: "시계",
   bandage: "붕대",
+  cell: "에너지 캡슐",
 };
 
 const MARK = {
@@ -27,6 +28,7 @@ const MARK = {
   cross: "#e7e1d4",
   clock: "#c4b0d4",
   bandage: "#d7d0c8",
+  cell: "#8dce6a",
 };
 
 const PING = {
@@ -51,7 +53,7 @@ const state = {
   supplyCd: {},
   cctvReadyAt: 0,
   cctvItem: null,
-  seen: { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0 },
+  seen: { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0, sediment: 0, gate: 0, cell: 0, sedimentFix: 0 },
   taskSig: null,
   roomData: null,
   lastPush: 0,
@@ -246,7 +248,7 @@ function hurt(amount, source) {
   if (source === "meltdown" || !state.multi) {
     state.phase = "dead";
     stopClock();
-    $("death-title").textContent = source === "meltdown" ? "원자로가 폭파했다" : "어둠에 남았다";
+    $("death-title").textContent = source === "meltdown" ? "원자로가 폭파했다" : source === "choke" ? "숨이 막혔다" : "어둠에 남았다";
     $("death-sub").textContent = `버틴 시각 ${sim ? sim.time : 0}`;
     hide("downed");
     show("death");
@@ -326,6 +328,10 @@ function publish() {
     dataGot: (sim.dataGot || []).slice(),
     worldOpen: !!sim.worldOpen,
     reactorHalted: !!sim.reactorHalted,
+    powerHoldUntil: sim.powerHoldUntil || 0,
+    sediment: sim.sediment && sim.sediment.start ? { start: sim.sediment.start } : { start: 0 },
+    gateOpenUntil: sim.gateOpenUntil || 0,
+    gateCardAt: sim.gateCardAt || 0,
     beat: Date.now(),
   });
 }
@@ -390,6 +396,16 @@ function consume(snap) {
   sim.power = snap.power;
   sim.reactor = snap.reactor;
   sim.meltdown = !!snap.meltdown;
+  if ((snap.powerHoldUntil || 0) > (sim.powerHoldUntil || 0)) sim.powerHoldUntil = snap.powerHoldUntil;
+  if (snap.sediment && snap.sediment.start) {
+    if (!sim.sediment || sim.sediment.start !== snap.sediment.start) {
+      sim.sediment = { start: snap.sediment.start };
+      if (state.seen.sediment !== snap.sediment.start) {
+        state.seen.sediment = snap.sediment.start;
+        toast("침전물 위험 신호가 열렸다. 침전조로 가라.");
+      }
+    }
+  } else if (snap.sediment && snap.sediment.start === 0) sim.sediment = null;
   state.applied = snap.t;
   for (const it of inv) {
     if (it.type === "clock") it.left -= 1;
@@ -459,9 +475,10 @@ function revealAnnex() {
 }
 
 function noteProgress() {
-  if (!sim || sim.worldOpen || (sim.doneTasks || []).length < TASKS.length) return;
+  if (!sim || sim.worldOpen || coreDoneCount() < TASKS.length) return;
   sim.worldOpen = true;
   revealAnnex();
+  if (!state.multi || amHost()) spawnAnnexMonsters(sim);
   toast("모든 미션을 마쳤다. 정원 서쪽에 통로가 열렸다.");
 }
 
@@ -475,6 +492,18 @@ function applyFacility(world) {
     sim.reactor = null;
     if (state.phase === "play") toast("원자로 가동이 멈췄다. 이제는 폭파하지 않는다.");
   }
+  if ((world.powerHoldUntil || 0) > (sim.powerHoldUntil || 0)) sim.powerHoldUntil = world.powerHoldUntil;
+  if (world.sediment && world.sediment.start) {
+    if (!sim.sediment || sim.sediment.start !== world.sediment.start) {
+      sim.sediment = { start: world.sediment.start };
+      if (state.phase === "play" && state.seen.sediment !== world.sediment.start) {
+        state.seen.sediment = world.sediment.start;
+        toast("침전물 위험 신호가 열렸다. 침전조로 가라.");
+      }
+    }
+  } else if (world.sediment && world.sediment.start === 0) sim.sediment = null;
+  if ((world.gateOpenUntil || 0) > (sim.gateOpenUntil || 0)) sim.gateOpenUntil = world.gateOpenUntil;
+  if ((world.gateCardAt || 0) > (sim.gateCardAt || 0)) sim.gateCardAt = world.gateCardAt;
 }
 
 function haltReactor() {
@@ -560,7 +589,8 @@ function resetRun(difficulty) {
   state.applied = 1;
   state.synced = false;
   state.boostUntil = 0;
-  state.seen = { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0 };
+  state.seen = { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0, sediment: 0, gate: 0, cell: 0, sedimentFix: 0 };
+  state.gateStay = 0;
   state.lampOn = false;
   state.ping = null;
   state.pingAt = 0;
@@ -699,12 +729,12 @@ function finishTask(roomId) {
     return;
   }
   if ((sim.doneTasks || []).includes(roomId)) return;
-  if (!TASKS.some((task) => task.id === roomId)) return;
+  const task = findTask(roomId);
+  if (!task) return;
   sim.doneTasks.push(roomId);
   if (roomId === "shields") sim.shieldsAt = performance.now();
-  const task = TASKS.find((item) => item.id === roomId);
-  const line = task?.id.startsWith("data:") ? `${task.name} 데이터를 올렸다.` : `${task.name} · ${task.title} 완료.`;
-  if ((sim.doneTasks || []).length >= TASKS.length) noteProgress();
+  const line = task.id.startsWith("data:") ? `${task.name} 데이터를 올렸다.` : `${task.name} · ${task.title} 완료.`;
+  if (!sim.worldOpen && coreDoneCount() >= TASKS.length) noteProgress();
   else toast(line);
   updateTaskbar();
   if (state.multi && amHost()) publish();
@@ -718,7 +748,7 @@ function noteDownload(roomId) {
     return;
   }
   sim.dataGot.push(roomId);
-  const task = TASKS.find((item) => item.id === `data:${roomId}`);
+  const task = findTask(`data:${roomId}`);
   toast(`${task ? task.name : "시설"} 데이터를 받았다. 전기실에서 올려라.`);
   updateTaskbar();
   if (state.multi) publish();
@@ -732,7 +762,7 @@ function applyWorldMission(world) {
     if (state.phase === "play") {
       for (const id of sim.dataGot) {
         if (prev.has(id)) continue;
-        const task = TASKS.find((item) => item.id === `data:${id}`);
+        const task = findTask(`data:${id}`);
         toast(`${task ? task.name : "시설"} 데이터를 받았다. 전기실에서 올려라.`);
       }
     }
@@ -749,30 +779,42 @@ function syncTasks(list) {
   sim.doneTasks = list.slice();
   if (state.phase === "play") {
     const added = sim.doneTasks.filter((id) => !prev.has(id));
-    if (prev.size < TASKS.length && sim.doneTasks.length >= TASKS.length) noteProgress();
+    const prevCore = TASKS.filter((task) => prev.has(task.id)).length;
+    if (prevCore < TASKS.length && coreDoneCount() >= TASKS.length) noteProgress();
     else if (added.length) {
-      const task = TASKS.find((item) => item.id === added[added.length - 1]);
+      const task = findTask(added[added.length - 1]);
       if (task) toast(`${task.name} 미션 완료.`);
     }
   }
   updateTaskbar();
 }
 
+function findTask(id) {
+  return TASKS.find((task) => task.id === id) || ANNEX_TASKS.find((task) => task.id === id);
+}
+
+function coreDoneCount() {
+  const done = sim?.doneTasks || [];
+  return TASKS.filter((task) => done.includes(task.id)).length;
+}
+
 function updateTaskbar() {
   const done = sim?.doneTasks || [];
-  const pct = (done.length / TASKS.length) * 100;
+  const core = coreDoneCount();
+  const pct = (core / TASKS.length) * 100;
   const fill = $("task-fill");
   const label = $("task-label");
   if (fill) fill.style.width = `${pct}%`;
-  if (label) label.textContent = `미션 ${done.length}/${TASKS.length}`;
+  if (label) label.textContent = `미션 ${core}/${TASKS.length}`;
   const got = sim?.dataGot || [];
-  const sig = `${done.join(",")}|${got.join(",")}`;
+  const sig = `${done.join(",")}|${got.join(",")}|${annexIsOpen() ? 1 : 0}`;
   if (sig === state.taskSig) return;
   state.taskSig = sig;
   const ul = $("task-list");
   if (!ul) return;
   ul.innerHTML = "";
-  for (const task of TASKS) {
+  const list = annexIsOpen() ? TASKS.concat(ANNEX_TASKS) : TASKS;
+  for (const task of list) {
     const li = document.createElement("li");
     const on = done.includes(task.id);
     li.className = on ? "done" : "";
@@ -859,6 +901,22 @@ function interact() {
       openCard();
       return;
     }
+    if (near && loc.id === "settle" && sim.sediment) {
+      openSediment();
+      return;
+    }
+    if (near && loc.id === "store") {
+      takeCells();
+      return;
+    }
+    if (near && loc.id === "electrical" && cellCount() >= 3) {
+      installCells();
+      return;
+    }
+  }
+  if (nearGatePanel()) {
+    swipeGate();
+    return;
   }
   if (takeGround(nearestGround())) return;
   if (loc.kind === "room") {
@@ -1030,6 +1088,22 @@ function onRoom(data) {
         state.seen.lever = data.leverAt;
         haltReactor();
       }
+      if (data.sedimentFixAt && data.sedimentFixAt !== state.seen.sedimentFix) {
+        state.seen.sedimentFix = data.sedimentFixAt;
+        sim.sediment = null;
+        publish();
+      }
+      if (data.cellAt && data.cellAt !== state.seen.cell) {
+        state.seen.cell = data.cellAt;
+        sim.powerHoldUntil = Math.max(sim.powerHoldUntil || 0, data.cellUntil || 0);
+        publish();
+      }
+      if (data.gateAt && data.gateAt !== state.seen.gate) {
+        state.seen.gate = data.gateAt;
+        if ((data.gateCardAt || 0) > (sim.gateCardAt || 0)) sim.gateCardAt = data.gateCardAt;
+        if (data.gateOk && (data.gateOpenUntil || 0) > (sim.gateOpenUntil || 0)) sim.gateOpenUntil = data.gateOpenUntil;
+        publish();
+      }
       if (data.taskAt && data.taskAt !== state.seen.task && data.taskRoom) {
         state.seen.task = data.taskAt;
         if (data.taskKind === "download") noteDownload(data.taskRoom);
@@ -1105,8 +1179,11 @@ function movePlayer(dt) {
     return;
   }
   const walk = state.phase === "lobby" ? lobbyWalk : isWalkable;
-  if (walk(player.x + dx, player.y)) player.x += dx;
-  if (walk(player.x, player.y + dy)) player.y += dy;
+  const nx = player.x + dx;
+  const ny = player.y + dy;
+  const blocked = (x, y) => state.phase === "play" && crossesGate(x, y) && !gateOpenNow();
+  if (walk(nx, player.y) && !blocked(nx, player.y)) player.x = nx;
+  if (walk(player.x, ny) && !blocked(player.x, ny)) player.y = ny;
 }
 
 function lobbyWalk(x, y) {
@@ -1156,8 +1233,9 @@ function updateHud(lamp) {
     const mark = state.paused && state.pauseBegan ? state.pauseBegan : Date.now();
     const sec = Math.max(0, Math.ceil((sim.reactor.deadlineAt - mark) / 1000));
     alarm = `원자로 멜트다운 — 남은 ${sec}초`;
-  }
-  else if (!sim.power) alarm = isGhost() ? "정전 · 유령은 어둠에 영향을 받지 않는다" : "정전 — 전기실에서 전선을 연결하라";
+  } else if (!sim.power) alarm = isGhost() ? "정전 · 유령은 어둠에 영향을 받지 않는다" : "정전 — 전기실에서 전선을 연결하라";
+  else if (sim.sediment) alarm = "침전물 위험 — 침전조에서 신호를 닫아라";
+  else if (playerRoom() === "gate" && player.alive) alarm = "개폐실 · 10초가 넘으면 숨이 막힌다";
   $("alarm-line").textContent = alarm;
   const d = danger();
   $("warn-line").textContent = !state.admin ? "" : d >= 3 ? "이 방에 더 머물면 안 된다." : d > 0 ? "같은 방에 무언가가 있다." : "";
@@ -1179,27 +1257,153 @@ function updateHud(lamp) {
 function promptText() {
   if (isGhost()) return "유령 · Z 위험 · X 여기 · C 따라와";
   if (nearLever()) return sim.reactorHalted ? "레버는 내려가 있다" : "E  레버를 내리다";
+  const gateLine = gatePrompt();
   const loc = locate(player.x, player.y);
-  if (loc.kind !== "room") {
-    const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 80);
-    return g ? "E  줍기" : "";
-  }
+  if (loc.kind !== "room") return gateLine || groundPrompt();
   const c = roomCenter(loc.id);
   const near = Math.hypot(player.x - c.x, player.y - c.y) < 200;
-  if (!near) {
-    const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 80);
-    return g ? "E  줍기" : "";
-  }
+  if (!near) return gateLine || groundPrompt();
   if (loc.id === "electrical" && !sim.power) return "E  전선 연결";
   if (loc.id === "reactor" && sim.reactor) return "E  카드 긁기";
+  if (loc.id === "settle" && sim.sediment) return "E  침전물 신호 닫기";
+  if (loc.id === "store") return "E  에너지 캡슐";
+  if (loc.id === "electrical" && cellCount() >= 3) return "E  에너지 캡슐을 꽂다";
+  if (loc.id === "gate") return gateLine || "E  카드 인증";
   const actions = actionsFor(loc.id, missionProgress());
   if (actions.length) return `E  ${actions.map((action) => action.label).join(" · ")}`;
   if (loc.id === "cctv") return "E  CCTV";
   if (loc.id === "map") return "E  도면";
   if (loc.id === "supply1" || loc.id === "supply2") return "E  보급";
-  if (loc.id === "electrical") return "전력 정상";
+  if (loc.id === "electrical") return sim.powerHoldUntil && sim.time <= sim.powerHoldUntil ? `전력 유지 · 시각 ${sim.powerHoldUntil}까지` : "전력 정상";
   if (loc.id === "reactor") return "원자로 안정";
-  return "";
+  return gateLine || "";
+}
+
+function groundPrompt() {
+  const g = ground.find((it) => Math.hypot(it.x - player.x, it.y - player.y) < 80);
+  return g ? "E  줍기" : "";
+}
+
+function cellCount() {
+  return inv.filter((it) => it.type === "cell").length;
+}
+
+function takeCells() {
+  if (inv.length > 1) {
+    toast("빈 칸이 3칸보다 적다.");
+    return;
+  }
+  inv.push(makeItem("cell"), makeItem("cell"), makeItem("cell"));
+  state.dirty = true;
+  playPickup();
+  toast("에너지 캡슐 3개를 받았다.");
+}
+
+function installCells() {
+  if (cellCount() < 3) {
+    toast("캡슐이 3개 필요하다.");
+    return;
+  }
+  let left = 3;
+  inv = inv.filter((it) => {
+    if (it.type === "cell" && left > 0) {
+      left -= 1;
+      return false;
+    }
+    return true;
+  });
+  if (selected >= inv.length) selected = Math.max(0, inv.length - 1);
+  state.dirty = true;
+  const until = Math.max(sim.time, sim.powerHoldUntil || 0) + 100;
+  sim.powerHoldUntil = until;
+  toast(`전력이 시각 ${until}까지 꺼지지 않는다.`);
+  if (state.multi && !amHost()) signal({ cellAt: Date.now(), cellUntil: until });
+  else if (state.multi) publish();
+}
+
+function gateOpenNow() {
+  return !!(sim && sim.gateOpenUntil && Date.now() < sim.gateOpenUntil);
+}
+
+function nearGatePanel() {
+  if (!annexIsOpen() || !sim) return false;
+  const room = roomById("gate");
+  if (!room) return false;
+  const loc = locate(player.x, player.y);
+  if (loc.kind === "room" && loc.id === "gate") return true;
+  if (loc.kind !== "corridor") return false;
+  const hall = corridorById(loc.id);
+  if (!hall || (hall.a !== "gate" && hall.b !== "gate")) return false;
+  const dx = Math.max(room.x - player.x, 0, player.x - (room.x + room.w));
+  const dy = Math.max(room.y - player.y, 0, player.y - (room.y + room.h));
+  return Math.hypot(dx, dy) < 180;
+}
+
+function gatePrompt() {
+  if (!nearGatePanel()) return "";
+  if (gateOpenNow()) return `문 열림 ${Math.max(1, Math.ceil((sim.gateOpenUntil - Date.now()) / 1000))}초`;
+  if (sim.gateCardAt && sim.time < sim.gateCardAt + 5) return `카드 대기 · 시각 ${sim.gateCardAt + 5}`;
+  return "E  카드 인증";
+}
+
+function swipeGate() {
+  if (sim.gateCardAt && sim.time < sim.gateCardAt + 5) {
+    toast(`카드는 시각 ${sim.gateCardAt + 5} 이후에 된다.`);
+    return;
+  }
+  openCard("gate");
+}
+
+function finishGate(ok) {
+  if (!sim) return;
+  sim.gateCardAt = sim.time;
+  if (ok) {
+    sim.gateOpenUntil = Date.now() + 5000;
+    toast("문이 5초 열린다. 10초가 넘으면 숨이 막힌다.");
+  } else toast("카드가 거절됐다. 시각이 5 지나야 다시 된다.");
+  if (state.multi && !amHost()) {
+    signal({ gateAt: Date.now(), gateOk: ok ? 1 : 0, gateCardAt: sim.gateCardAt, gateOpenUntil: sim.gateOpenUntil || 0 });
+  } else if (state.multi) publish();
+}
+
+function clearSediment() {
+  if (!sim?.sediment) return;
+  sim.sediment = null;
+  toast("침전물 신호를 닫았다.");
+  if (state.multi && !amHost()) signal({ sedimentFixAt: Date.now() });
+  else if (state.multi) publish();
+}
+
+function crossesGate(x, y) {
+  if (!annexIsOpen()) return false;
+  const here = locate(player.x, player.y);
+  const next = locate(x, y);
+  const inside = (loc) => loc.kind === "room" && loc.id === "gate";
+  return inside(here) !== inside(next);
+}
+
+function tickChoke(dt) {
+  if (state.paused || !player.alive || isGhost() || state.phase !== "play") return;
+  if (playerRoom() !== "gate") {
+    state.gateStay = 0;
+    return;
+  }
+  state.gateStay += dt;
+  if (state.gateStay < 10) return;
+  state.gateStay = 0;
+  toast("숨이 막힌다.");
+  hurt(99, "choke");
+}
+
+function drawGateSeal() {
+  if (!annexIsOpen() || gateOpenNow()) return;
+  const room = roomById("gate");
+  if (!room) return;
+  ctx.save();
+  ctx.strokeStyle = "#a33b3b";
+  ctx.lineWidth = 14;
+  ctx.strokeRect(room.x + 18, room.y + 18, room.w - 36, room.h - 36);
+  ctx.restore();
 }
 
 function missionProgress() {
@@ -1420,6 +1624,7 @@ function drawFacility(now, lamp) {
   const annex = annexLayer();
   if (annex) ctx.drawImage(annex.canvas, annex.x, annex.y);
   drawLever();
+  drawGateSeal();
   for (const g of ground) {
     ctx.fillStyle = MARK[g.type] || "#ccc";
     ctx.fillRect(g.x - 14, g.y - 14, 28, 28);
@@ -1604,6 +1809,7 @@ function loop(now) {
       movePlayer(dt);
       tickTime(dt);
       tickReactor();
+      tickChoke(dt);
     }
     const lamp = holdLamp(dt);
     animateGhosts(dt);
@@ -1696,8 +1902,8 @@ function goMenu() {
 }
 
 function bind() {
-  initMinigames({ onPower: fixPower, onReactor: fixReactor });
-  initMissions({ onDone: finishTask, onDownload: noteDownload });
+  initMinigames({ onPower: fixPower, onReactor: fixReactor, onGate: finishGate });
+  initMissions({ onDone: finishTask, onDownload: noteDownload, onSignal: clearSediment });
   $("task-toggle").addEventListener("click", () => {
     $("task-list").classList.toggle("hidden");
     updateTaskbar();

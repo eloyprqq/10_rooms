@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=28";
+} from "./map.js?v=29";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -55,6 +55,7 @@ function targetCorridor(body) {
 }
 
 const COUNTS = { easy: 1, normal: 2, hard: 3, extreme: 4 };
+const ANNEX_COUNTS = { easy: 2, normal: 3, hard: 4, extreme: 5 };
 
 export function monsterCount(difficulty) {
   return COUNTS[difficulty] || 1;
@@ -161,7 +162,7 @@ function tryEnterRoom(monster, body, t, rng, events, monsters = [], pressure = 0
     const db = (pb.x - body.x) ** 2 + (pb.y - body.y) ** 2;
     return da - db;
   });
-  const roomId = options.find((id) => !used.has(`room:${id}`));
+  const roomId = options.find((id) => id !== "gate" && !used.has(`room:${id}`));
   if (!roomId) return;
   const room = roomById(roomId);
   if (rng() < room.skip * (1 - 0.65 * pressure)) {
@@ -203,6 +204,11 @@ export function createMatch(difficulty, rng = Math.random) {
     meltdown: false,
     reactorHalted: false,
     worldOpen: false,
+    annexSpawned: false,
+    powerHoldUntil: 0,
+    sediment: null,
+    gateOpenUntil: 0,
+    gateCardAt: 0,
     doneTasks: [],
     dataGot: [],
     shieldsAt: 0,
@@ -218,6 +224,8 @@ export function snapshot(state, t, hits) {
     power: state.power,
     reactor: state.reactor ? { ...state.reactor } : null,
     meltdown: state.meltdown,
+    powerHoldUntil: state.powerHoldUntil || 0,
+    sediment: state.sediment && state.sediment.start ? { start: state.sediment.start } : { start: 0 },
     monsters: state.monsters.map(publicMonster),
     hits,
   };
@@ -231,7 +239,8 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
   const next = state.time + delta;
   for (let t = state.time + 1; t <= next; t++) {
     const hits = [];
-    if (t % 17 === 0) state.power = false;
+    if (t % 17 === 0 && !(state.powerHoldUntil && t <= state.powerHoldUntil)) state.power = false;
+    if (t % 23 === 0 && state.worldOpen && !state.sediment) state.sediment = { start: t };
     if (t % 13 === 0 && !state.reactor && !state.meltdown && !state.reactorHalted) {
       state.reactor = { start: t, deadlineAt: now + 40000 };
     }
@@ -256,7 +265,7 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
             monster.exposure[body.id] = 0;
             continue;
           }
-          const inside = monster.place.type === "room" && monster.place.id === body.room;
+          const inside = monster.place.type === "room" && monster.place.id === body.room && body.room !== "gate";
           if (!inside) {
             monster.exposure[body.id] = 0;
             continue;
@@ -281,6 +290,28 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
     if (state.meltdown) break;
   }
   return snaps;
+}
+
+export function spawnAnnexMonsters(state, rng = Math.random) {
+  if (!state || state.annexSpawned) return;
+  state.annexSpawned = true;
+  const count = ANNEX_COUNTS[state.difficulty] || 2;
+  const halls = shuffle(
+    CORRIDORS.filter((c) => c.world === 1),
+    rng
+  );
+  let made = 0;
+  for (const c of halls) {
+    if (made >= count) break;
+    if (state.monsters.some((m) => m.place.type === "corridor" && m.place.id === c.id)) continue;
+    state.monsters.push({
+      id: 101 + made,
+      place: { type: "corridor", id: c.id },
+      lockUntil: 0,
+      exposure: {},
+    });
+    made += 1;
+  }
 }
 
 export function scatterMonsters(state, rng = Math.random) {

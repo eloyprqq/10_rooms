@@ -23,8 +23,51 @@ export const TASKS = [
   ...DATA_ROOMS.map((id) => ({ id: `data:${id}`, name: ROOM_NAME[id], title: "데이터 업로드" })),
 ];
 
+const ANNEX_NAME = {
+  spare: "무기고",
+  hold: "격납고",
+  cool: "냉각실",
+  filter: "여과실",
+  archive: "기록고",
+  settle: "침전조",
+  vent: "환기실",
+  pump: "펌프실",
+  kiln: "소각실",
+  watch: "관측대",
+  upper: "상부관",
+  drain: "배수실",
+};
+
+export const ANNEX_DATA = ["spare", "hold", "cool", "archive", "vent", "watch"];
+
+export const ANNEX_TASKS = [
+  { id: "spare-mag", name: "무기고", title: "탄창 장전" },
+  { id: "data:spare", name: "무기고", title: "데이터 업로드" },
+  { id: "data:hold", name: "격납고", title: "데이터 업로드" },
+  { id: "hold-bolt", name: "격납고", title: "문 볼트" },
+  { id: "cool-valve", name: "냉각실", title: "냉각 밸브" },
+  { id: "data:cool", name: "냉각실", title: "데이터 업로드" },
+  { id: "filter-swap", name: "여과실", title: "필터 교체" },
+  { id: "filter-flow", name: "여과실", title: "유량 조절" },
+  { id: "archive-scan", name: "기록고", title: "문서 스캔" },
+  { id: "data:archive", name: "기록고", title: "데이터 업로드" },
+  { id: "settle-sludge", name: "침전조", title: "슬러지 배출" },
+  { id: "vent-fan", name: "환기실", title: "팬 정렬" },
+  { id: "data:vent", name: "환기실", title: "데이터 업로드" },
+  { id: "pump-leak", name: "펌프실", title: "누수 차단" },
+  { id: "kiln-light", name: "소각실", title: "소각로 점화" },
+  { id: "kiln-ash", name: "소각실", title: "재 처리" },
+  { id: "watch-aim", name: "관측대", title: "표적 조준" },
+  { id: "data:watch", name: "관측대", title: "데이터 업로드" },
+  { id: "upper-pipe", name: "상부관", title: "배관 연결" },
+  { id: "upper-vent", name: "상부관", title: "압력 해제" },
+  { id: "drain-pump", name: "배수실", title: "배수" },
+  { id: "drain-grate", name: "배수실", title: "배수구 청소" },
+];
+
 let onDone = () => {};
 let onDownload = () => {};
+let onSignal = () => {};
 let open = false;
 let token = 0;
 let raf = 0;
@@ -35,6 +78,10 @@ function $(id) {
 
 function has(list, id) {
   return (list || []).includes(id);
+}
+
+function roomTitle(id) {
+  return ROOM_NAME[id] || ANNEX_NAME[id] || id;
 }
 
 export function actionsFor(roomId, progress) {
@@ -53,8 +100,27 @@ export function actionsFor(roomId, progress) {
     actions.push({ kind: "trash-link", label: "쓰레기통 비우기" });
     actions.push({ kind: "ruby", label: "루비 보관" });
   }
+  if (ANNEX_DATA.includes(roomId) && !has(got, roomId) && !has(done, `data:${roomId}`)) {
+    actions.push({ kind: "download", label: "데이터 다운로드" });
+  }
+  if (roomId === "spare" && !has(done, "spare-mag")) actions.push({ kind: "mag", label: "탄창 장전" });
+  if (roomId === "hold" && !has(done, "hold-bolt")) actions.push({ kind: "bolt", label: "문 볼트" });
+  if (roomId === "cool" && !has(done, "cool-valve")) actions.push({ kind: "valve", label: "냉각 밸브" });
+  if (roomId === "filter" && !has(done, "filter-swap")) actions.push({ kind: "filters", label: "필터 교체" });
+  if (roomId === "filter" && !has(done, "filter-flow")) actions.push({ kind: "flow", label: "유량 조절" });
+  if (roomId === "archive" && !has(done, "archive-scan")) actions.push({ kind: "scan", label: "문서 스캔" });
+  if (roomId === "settle" && !has(done, "settle-sludge")) actions.push({ kind: "sludge", label: "슬러지 배출" });
+  if (roomId === "vent" && !has(done, "vent-fan")) actions.push({ kind: "fan", label: "팬 정렬" });
+  if (roomId === "pump" && !has(done, "pump-leak")) actions.push({ kind: "leak", label: "누수 차단" });
+  if (roomId === "kiln" && !has(done, "kiln-light")) actions.push({ kind: "ignite", label: "소각로 점화" });
+  if (roomId === "kiln" && !has(done, "kiln-ash")) actions.push({ kind: "ash", label: "재 처리" });
+  if (roomId === "watch" && !has(done, "watch-aim")) actions.push({ kind: "aim", label: "표적 조준" });
+  if (roomId === "upper" && !has(done, "upper-pipe")) actions.push({ kind: "pipes", label: "배관 연결" });
+  if (roomId === "upper" && !has(done, "upper-vent")) actions.push({ kind: "pressure", label: "압력 해제" });
+  if (roomId === "drain" && !has(done, "drain-pump")) actions.push({ kind: "bilge", label: "배수" });
+  if (roomId === "drain" && !has(done, "drain-grate")) actions.push({ kind: "grate", label: "배수구 청소" });
   if (roomId === "electrical") {
-    const pending = DATA_ROOMS.filter((id) => has(got, id) && !has(done, `data:${id}`));
+    const pending = DATA_ROOMS.concat(ANNEX_DATA).filter((id) => has(got, id) && !has(done, `data:${id}`));
     if (pending.length) actions.push({ kind: "upload", label: "데이터 업로드", pending });
   }
   return actions;
@@ -63,6 +129,7 @@ export function actionsFor(roomId, progress) {
 export function initMissions(handlers) {
   onDone = handlers.onDone;
   onDownload = handlers.onDownload;
+  onSignal = handlers.onSignal || (() => {});
   $("mission-close").addEventListener("click", closeMission);
 }
 
@@ -82,7 +149,7 @@ export function closeMission() {
 export function openRoomTasks(roomId, progress) {
   const actions = actionsFor(roomId, progress);
   if (!actions.length) return false;
-  begin(ROOM_NAME[roomId] || roomId);
+  begin(roomTitle(roomId));
   if (actions.length === 1) run(actions[0], roomId);
   else menu(actions, roomId);
   return true;
@@ -125,7 +192,8 @@ function run(action, roomId) {
     setTimeout(() => {
       if (stamp !== token) return;
       closeMission();
-      onDone(taskId);
+      if (action.signal) onSignal();
+      else onDone(taskId);
     }, 1100);
   };
   if (action.kind === "download") return download(roomId, body, msg, mine);
@@ -136,6 +204,27 @@ function run(action, roomId) {
   if (action.kind === "ruby") return ruby(body, msg, succeed);
   if (action.kind === "shields") return shields(body, msg, succeed);
   if (action.kind === "oxygen") return oxygen(body, msg, succeed, roomId === "bedroom" ? "oxygen-bedroom" : "oxygen-supply1");
+  if (action.kind === "mag") return dragOnto(body, msg, succeed, "spare-mag", "탄창을 총에 끌어 넣으세요.", "탄창", "총");
+  if (action.kind === "bolt") return ordered(body, msg, succeed, "hold-bolt", "볼트를 1부터 누르세요.", ["1", "2", "3", "4"]);
+  if (action.kind === "valve") return timing(body, msg, succeed, "cool-valve", "초록 구간에서 밸브를 맞추세요.");
+  if (action.kind === "filters") return taps(body, msg, succeed, "filter-swap", "더러운 필터를 누르세요.", ["필터", "필터", "필터"], "교체");
+  if (action.kind === "flow") return timing(body, msg, succeed, "filter-flow", "초록 구간에서 유량을 맞추세요.");
+  if (action.kind === "scan") return ordered(body, msg, succeed, "archive-scan", "문서를 순서대로 스캔하세요.", ["1", "2", "3"]);
+  if (action.kind === "sludge") return pullDown(body, msg, succeed, action.signal ? "" : "settle-sludge", "레버를 내려 침전물을 내보내세요.");
+  if (action.kind === "fan") return timing(body, msg, succeed, "vent-fan", "초록 구간에서 팬을 맞추세요.");
+  if (action.kind === "leak") return taps(body, msg, succeed, "pump-leak", "새는 이음새를 조이세요.", ["누수", "누수"], "잠금");
+  if (action.kind === "ignite") return taps(body, msg, succeed, "kiln-light", "연료를 넣고 점화하세요.", ["연료", "점화"], "완료");
+  if (action.kind === "ash") return dragOnto(body, msg, succeed, "kiln-ash", "재를 배출구로 끌어 넣으세요.", "재", "배출구");
+  if (action.kind === "aim") return aim(body, msg, succeed, mine);
+  if (action.kind === "pipes") return pipes(body, msg, succeed);
+  if (action.kind === "pressure") return ordered(body, msg, succeed, "upper-vent", "밸브를 순서대로 여세요.", ["1", "2", "3"]);
+  if (action.kind === "bilge") return taps(body, msg, succeed, "drain-pump", "펌프를 세 번 돌리세요.", ["펌프", "펌프", "펌프"], "가동");
+  if (action.kind === "grate") return taps(body, msg, succeed, "drain-grate", "막힌 격자를 들어내세요.", ["격자", "격자", "격자"], "제거");
+}
+
+export function openSediment() {
+  begin("침전조");
+  run({ kind: "sludge", label: "침전물 신호 닫기", signal: true }, "settle");
 }
 
 function button(label) {
@@ -174,7 +263,7 @@ function upload(pending, body, msg, mine) {
   const bar = meter(body);
   const list = document.createElement("p");
   list.className = "mission-note";
-  list.textContent = pending.map((id) => ROOM_NAME[id]).join(", ");
+  list.textContent = pending.map((id) => roomTitle(id)).join(", ");
   body.appendChild(list);
   const started = performance.now();
   const total = pending.length * 900;
@@ -475,6 +564,247 @@ function oxygen(body, msg, succeed, taskId) {
       if (left === 0) succeed(taskId);
     });
     row.appendChild(tank);
+  }
+  body.appendChild(row);
+}
+
+function taps(body, msg, succeed, taskId, hint, labels, after) {
+  msg.textContent = hint;
+  const row = document.createElement("div");
+  row.className = "mission-row";
+  let left = labels.length;
+  for (const label of labels) {
+    const el = button(label);
+    el.addEventListener("click", () => {
+      if (el.disabled) return;
+      el.disabled = true;
+      el.textContent = after;
+      left -= 1;
+      if (left === 0) succeed(taskId);
+    });
+    row.appendChild(el);
+  }
+  body.appendChild(row);
+}
+
+function ordered(body, msg, succeed, taskId, hint, labels) {
+  msg.textContent = hint;
+  const row = document.createElement("div");
+  row.className = "mission-row";
+  let step = 0;
+  const buttons = labels.map((label) => button(label));
+  const paint = () => {
+    buttons.forEach((el, i) => {
+      el.disabled = i !== step;
+      el.textContent = i < step ? "완료" : labels[i];
+    });
+  };
+  buttons.forEach((el, i) => {
+    el.addEventListener("click", () => {
+      if (i !== step) {
+        step = 0;
+        msg.textContent = "순서가 어긋났다.";
+        paint();
+        return;
+      }
+      step += 1;
+      if (step >= labels.length) succeed(taskId);
+      else paint();
+    });
+    row.appendChild(el);
+  });
+  body.appendChild(row);
+  paint();
+}
+
+function timing(body, msg, succeed, taskId, hint) {
+  msg.textContent = hint;
+  const track = document.createElement("div");
+  track.className = "data-track";
+  track.style.position = "relative";
+  track.style.height = "28px";
+  const zone = document.createElement("div");
+  zone.style.cssText = "position:absolute;left:38%;width:24%;top:0;bottom:0;background:#2f6b45;";
+  const knob = document.createElement("div");
+  knob.style.cssText = "position:absolute;top:0;width:10px;height:100%;background:#f4efe4;";
+  track.append(zone, knob);
+  const press = button("맞추기");
+  body.append(track, press);
+  let p = 0;
+  let dir = 1;
+  const tick = () => {
+    if (!open) return;
+    p += dir * 0.01;
+    if (p >= 1 || p <= 0) dir *= -1;
+    knob.style.left = `calc(${p * 100}% - 5px)`;
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+  press.addEventListener("click", () => {
+    if (p >= 0.38 && p <= 0.62) succeed(taskId);
+    else msg.textContent = "구간을 벗어났다.";
+  });
+}
+
+function dragOnto(body, msg, succeed, taskId, hint, itemLabel, slotLabel) {
+  msg.textContent = hint;
+  const stage = document.createElement("div");
+  stage.className = "ruby-stage";
+  const item = document.createElement("div");
+  item.className = "ruby";
+  item.textContent = itemLabel;
+  const slot = document.createElement("div");
+  slot.className = "safe";
+  slot.textContent = slotLabel;
+  stage.append(item, slot);
+  body.appendChild(stage);
+  let dragging = false;
+  item.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    item.setPointerCapture(e.pointerId);
+  });
+  item.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const rect = stage.getBoundingClientRect();
+    item.style.left = `${e.clientX - rect.left - 28}px`;
+    item.style.top = `${e.clientY - rect.top - 22}px`;
+  });
+  const drop = () => {
+    if (!dragging) return;
+    dragging = false;
+    const a = item.getBoundingClientRect();
+    const b = slot.getBoundingClientRect();
+    const cx = a.left + a.width / 2;
+    const cy = a.top + a.height / 2;
+    if (cx > b.left && cx < b.right && cy > b.top && cy < b.bottom) {
+      item.remove();
+      slot.textContent = "완료";
+      slot.classList.add("full");
+      succeed(taskId);
+    }
+  };
+  item.addEventListener("pointerup", drop);
+  item.addEventListener("pointercancel", () => {
+    dragging = false;
+  });
+}
+
+function pullDown(body, msg, succeed, taskId, hint) {
+  msg.textContent = hint;
+  const wrap = document.createElement("div");
+  wrap.className = "garbage";
+  const track = document.createElement("div");
+  track.className = "lever-track";
+  const handle = document.createElement("div");
+  handle.className = "lever-handle";
+  track.appendChild(handle);
+  wrap.appendChild(track);
+  body.appendChild(wrap);
+  let dragging = false;
+  let dumped = false;
+  const place = (clientY) => {
+    const rect = track.getBoundingClientRect();
+    const y = Math.max(0, Math.min(rect.height - 36, clientY - rect.top - 18));
+    handle.style.top = `${y}px`;
+    if (y > rect.height - 52) dump();
+  };
+  const dump = () => {
+    if (dumped) return;
+    dumped = true;
+    dragging = false;
+    succeed(taskId);
+  };
+  handle.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (dragging) place(e.clientY);
+  });
+  handle.addEventListener("pointerup", () => {
+    dragging = false;
+  });
+}
+
+function aim(body, msg, succeed, mine) {
+  msg.textContent = "표적을 십자에 맞추세요.";
+  const canvas = document.createElement("canvas");
+  canvas.className = "space-view";
+  canvas.width = 560;
+  canvas.height = 320;
+  body.appendChild(canvas);
+  const g = canvas.getContext("2d");
+  const target = { x: 120 + Math.random() * 320, y: 70 + Math.random() * 160 };
+  let cross = { x: 80, y: 240 };
+  const draw = () => {
+    if (mine !== token) return;
+    g.fillStyle = "#101820";
+    g.fillRect(0, 0, 560, 320);
+    g.strokeStyle = "#d7e2ea";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(cross.x - 16, cross.y);
+    g.lineTo(cross.x + 16, cross.y);
+    g.moveTo(cross.x, cross.y - 16);
+    g.lineTo(cross.x, cross.y + 16);
+    g.stroke();
+    g.fillStyle = "#e23b3b";
+    g.beginPath();
+    g.arc(target.x, target.y, 10, 0, Math.PI * 2);
+    g.fill();
+    raf = requestAnimationFrame(draw);
+  };
+  canvas.addEventListener("pointermove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    cross = {
+      x: ((e.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((e.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  });
+  canvas.addEventListener("pointerdown", () => {
+    if (Math.hypot(cross.x - target.x, cross.y - target.y) <= 22) succeed("watch-aim");
+    else msg.textContent = "빗나갔다.";
+  });
+  raf = requestAnimationFrame(draw);
+}
+
+function pipes(body, msg, succeed) {
+  msg.textContent = "같은 색을 이으세요.";
+  const colors = [
+    { id: "red", hex: "#d64545" },
+    { id: "blue", hex: "#3d74d6" },
+    { id: "yellow", hex: "#e0b341" },
+  ];
+  const right = [...colors].sort(() => Math.random() - 0.5);
+  const row = document.createElement("div");
+  row.className = "mission-row";
+  let picked = null;
+  let leftCount = 0;
+  const linked = new Set();
+  for (const color of colors) {
+    const el = button("");
+    el.style.background = color.hex;
+    el.addEventListener("click", () => {
+      picked = color.id;
+      msg.textContent = "오른쪽 같은 색을 누르세요.";
+    });
+    row.appendChild(el);
+  }
+  for (const color of right) {
+    const el = button("");
+    el.style.background = color.hex;
+    el.addEventListener("click", () => {
+      if (!picked) return;
+      if (picked === color.id && !linked.has(color.id)) {
+        linked.add(color.id);
+        leftCount += 1;
+        el.disabled = true;
+        msg.textContent = "연결되었다.";
+        if (leftCount === colors.length) succeed("upper-pipe");
+      } else msg.textContent = "색이 다르다.";
+      picked = null;
+    });
+    row.appendChild(el);
   }
   body.appendChild(row);
 }

@@ -7,8 +7,10 @@ const COLORS = [
 
 let onPower = () => {};
 let onReactor = () => {};
+let onGate = () => {};
 let wiresOpen = false;
 let cardOpen = false;
+let cardMode = "reactor";
 let links = [];
 let selected = null;
 let cardStart = 0;
@@ -30,6 +32,7 @@ function shuffle(list) {
 export function initMinigames(handlers) {
   onPower = handlers.onPower;
   onReactor = handlers.onReactor;
+  onGate = handlers.onGate || (() => {});
   $("wire-close").addEventListener("click", closeMinigames);
   $("card-close").addEventListener("click", closeMinigames);
   const card = $("swipe-card");
@@ -55,6 +58,14 @@ export function initMinigames(handlers) {
       card.style.transition = "left 0.2s ease";
       card.style.left = "8px";
       $("card-msg").textContent = "너무 일찍 놓았습니다.";
+      if (cardMode === "gate") {
+        const mode = cardMode;
+        setTimeout(() => {
+          if (cardMode !== mode || !cardOpen) return;
+          closeMinigames();
+          onGate(false);
+        }, 450);
+      }
     }
   };
   card.addEventListener("pointerup", endDrag);
@@ -154,10 +165,12 @@ function finishCard(elapsed) {
   dragging = false;
   const ok = elapsed >= 620 && elapsed <= 1400;
   if (ok) {
-    $("card-msg").textContent = "출입 허가.";
+    $("card-msg").textContent = cardMode === "gate" ? "문이 열립니다." : "출입 허가.";
+    const mode = cardMode;
     setTimeout(() => {
       closeMinigames();
-      onReactor();
+      if (mode === "gate") onGate(true);
+      else onReactor();
     }, 400);
     return;
   }
@@ -165,6 +178,14 @@ function finishCard(elapsed) {
   const card = $("swipe-card");
   card.style.transition = "left 0.2s ease";
   card.style.left = "8px";
+  if (cardMode === "gate") {
+    const mode = cardMode;
+    setTimeout(() => {
+      if (!cardOpen || cardMode !== mode) return;
+      closeMinigames();
+      onGate(false);
+    }, 500);
+  }
 }
 
 export function openWires() {
@@ -175,11 +196,12 @@ export function openWires() {
   requestAnimationFrame(drawLinks);
 }
 
-export function openCard() {
+export function openCard(mode = "reactor") {
   closeMinigames();
+  cardMode = mode === "gate" ? "gate" : "reactor";
   cardOpen = true;
   $("card-overlay").classList.remove("hidden");
-  $("card-msg").textContent = "카드를 오른쪽 끝까지 일정한 속도로 긁으세요.";
+  $("card-msg").textContent = cardMode === "gate" ? "성공하면 문이 5초 열립니다." : "카드를 오른쪽 끝까지 일정한 속도로 긁으세요.";
   const card = $("swipe-card");
   card.style.transition = "none";
   card.style.left = "8px";
