@@ -810,9 +810,10 @@ export function drawSchematic(ctx, w, h, player, others = []) {
   if (player) dot(player.x, player.y, "#9a2430", "나");
 }
 
-export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
+export function drawMinimap(ctx, w, h, player, monsters = [], world = 0, pending = []) {
   const showBoth = annexIsOpen();
   const frame = worldFrame(showBoth ? "both" : world === 1 ? 1 : 0);
+  const pendingSet = new Set(pending || []);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#171b22";
   ctx.fillRect(0, 0, w, h);
@@ -822,6 +823,15 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
   const scale = Math.min((w - pad * 2) / spanX, (h - pad * 2) / spanY);
   const ox = (w - spanX * scale) / 2 - frame.minX * scale;
   const oy = (h - spanY * scale) / 2 - frame.minY * scale;
+  let hereId = "";
+  let hereName = "";
+  if (player) {
+    const loc = locate(player.x, player.y);
+    if (loc.kind === "room" && roomById(loc.id)) {
+      hereId = loc.id;
+      hereName = roomById(loc.id).name;
+    } else if (loc.kind === "corridor") hereName = "복도";
+  }
   ctx.save();
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
@@ -842,18 +852,33 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0) {
     ctx.fillRect(c.x - padHall, c.y - padHall, c.w + padHall * 2, c.h + padHall * 2);
   }
   for (const room of frame.rooms) {
-    ctx.fillStyle = room.world === 1 ? "#d5dde4" : "#8b939c";
+    const waiting = pendingSet.has(room.id);
+    ctx.fillStyle = waiting ? "#c43838" : room.world === 1 ? "#d5dde4" : "#8b939c";
     ctx.fillRect(room.x, room.y, room.w, room.h);
-    ctx.strokeStyle = "#2a3038";
-    ctx.lineWidth = 18;
+    ctx.strokeStyle = room.id === hereId ? "#f4efe4" : "#2a3038";
+    ctx.lineWidth = room.id === hereId ? 36 : 18;
     ctx.strokeRect(room.x, room.y, room.w, room.h);
+    const chars = Math.max(2, room.name.length);
+    const fontWorld = Math.min(room.w / (chars * 0.92), room.h * 0.34);
+    ctx.font = `700 ${fontWorld}px "IBM Plex Sans KR", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = Math.max(8, fontWorld * 0.14);
+    ctx.strokeStyle = waiting ? "#4a1216" : "rgba(255,255,255,0.72)";
+    ctx.strokeText(room.name, room.x + room.w / 2, room.y + room.h / 2);
+    ctx.fillStyle = waiting ? "#fff6f4" : "#171b22";
+    ctx.fillText(room.name, room.x + room.w / 2, room.y + room.h / 2);
   }
   ctx.restore();
   ctx.fillStyle = "#d7dde6";
-  ctx.font = '700 12px "IBM Plex Sans KR", sans-serif';
+  ctx.font = '700 22px "IBM Plex Sans KR", sans-serif';
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.fillText(world === 1 ? "WORLD 1" : "WORLD 0", 8, 6);
+  ctx.fillText(world === 1 ? "WORLD 1" : "WORLD 0", 10, 8);
+  if (hereName) {
+    ctx.font = '700 20px "IBM Plex Sans KR", sans-serif';
+    ctx.fillText(hereName, 10, 34);
+  }
   const mark = (x, y, color, radius) => {
     ctx.fillStyle = color;
     ctx.beginPath();

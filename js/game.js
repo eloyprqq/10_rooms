@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=30";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=30";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=30";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=30";
-import { TASKS, ANNEX_TASKS, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=30";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=30";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=31";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=31";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=31";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=31";
+import { TASKS, ANNEX_TASKS, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=31";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=31";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -798,14 +798,24 @@ function coreDoneCount() {
   return TASKS.filter((task) => done.includes(task.id)).length;
 }
 
+function missionSpan() {
+  return annexIsOpen() ? TASKS.concat(ANNEX_TASKS) : TASKS;
+}
+
+function missionDoneCount() {
+  const done = sim?.doneTasks || [];
+  return missionSpan().filter((task) => done.includes(task.id)).length;
+}
+
 function updateTaskbar() {
   const done = sim?.doneTasks || [];
-  const core = coreDoneCount();
-  const pct = (core / TASKS.length) * 100;
+  const total = missionSpan().length;
+  const count = missionDoneCount();
+  const pct = (count / total) * 100;
   const fill = $("task-fill");
   const label = $("task-label");
   if (fill) fill.style.width = `${pct}%`;
-  if (label) label.textContent = `미션 ${core}/${TASKS.length}`;
+  if (label) label.textContent = `미션 ${count}/${total}`;
   const got = sim?.dataGot || [];
   const sig = `${done.join(",")}|${got.join(",")}|${annexIsOpen() ? 1 : 0}`;
   if (sig === state.taskSig) return;
@@ -813,7 +823,7 @@ function updateTaskbar() {
   const ul = $("task-list");
   if (!ul) return;
   ul.innerHTML = "";
-  const list = annexIsOpen() ? TASKS.concat(ANNEX_TASKS) : TASKS;
+  const list = missionSpan();
   for (const task of list) {
     const li = document.createElement("li");
     const on = done.includes(task.id);
@@ -826,6 +836,42 @@ function updateTaskbar() {
     } else li.textContent = `${on ? "✓" : "·"} ${task.name}  ${task.title}`;
     ul.appendChild(li);
   }
+}
+
+const ROOM_TASKS = {
+  garden: ["garden-trash", "data:garden"],
+  supply2: ["data:supply2"],
+  map: ["data:map"],
+  cafeteria: ["cafeteria", "data:cafeteria"],
+  supply1: ["oxygen-supply1", "data:supply1"],
+  cctv: ["shields", "data:cctv"],
+  bedroom: ["oxygen-bedroom", "data:bedroom"],
+  rooftop: ["meteor", "data:rooftop"],
+  spare: ["spare-mag", "data:spare"],
+  hold: ["hold-bolt", "data:hold"],
+  cool: ["cool-valve", "data:cool"],
+  filter: ["filter-swap", "filter-flow"],
+  archive: ["archive-scan", "data:archive"],
+  settle: ["settle-sludge"],
+  vent: ["vent-fan", "data:vent"],
+  pump: ["pump-leak"],
+  kiln: ["kiln-light", "kiln-ash"],
+  watch: ["watch-aim", "data:watch"],
+  upper: ["upper-pipe", "upper-vent"],
+  drain: ["drain-pump", "drain-grate"],
+};
+
+const WEST_ROOMS = new Set(["spare", "hold", "cool", "filter", "archive", "settle", "vent", "pump", "kiln", "watch", "upper", "drain"]);
+
+function incompleteRooms() {
+  const done = new Set(sim?.doneTasks || []);
+  const open = annexIsOpen();
+  const ids = [];
+  for (const [roomId, tasks] of Object.entries(ROOM_TASKS)) {
+    if (!open && WEST_ROOMS.has(roomId)) continue;
+    if (tasks.some((id) => !done.has(id))) ids.push(roomId);
+  }
+  return ids;
 }
 
 function nearestGround() {
@@ -1662,7 +1708,7 @@ function drawFacility(now, lamp) {
     const marks = state.admin
       ? sim.monsters.map((m) => ghosts.get(m.id) || anchorOf(m.place))
       : [];
-    drawMinimap(mini.getContext("2d"), mini.width, mini.height, player, marks, whichWorld(player.x, player.y));
+    drawMinimap(mini.getContext("2d"), mini.width, mini.height, player, marks, whichWorld(player.x, player.y), incompleteRooms());
   }
 }
 
