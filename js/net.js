@@ -1,4 +1,4 @@
-import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=32";
+import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=33";
 
 export { isFirebaseConfigured };
 
@@ -84,11 +84,24 @@ export async function joinRoom({ code, name, color }) {
   await ensure();
   myId = playerId();
   roomCode = String(code || "").trim().toUpperCase();
-  const snap = await api.get(api.ref(db, `rooms/${roomCode}`));
+  const roomRef = api.ref(db, `rooms/${roomCode}`);
+  const snap = await api.get(roomRef);
   if (!snap.exists()) throw new Error("없는 방 코드입니다.");
-  const data = snap.val();
+  const preview = snap.val();
+  const seated = preview.players && preview.players[myId];
+  if (!seated && Object.keys(preview.players || {}).length >= 4) throw new Error("방이 가득 찼습니다. 최대 4명입니다.");
+  const result = await api.runTransaction(roomRef, (cur) => {
+    if (!cur) return cur;
+    if (!cur.players) cur.players = {};
+    if (cur.players[myId]) return cur;
+    if (Object.keys(cur.players).length >= 4) return cur;
+    cur.players[myId] = basePlayer(name, color);
+    return cur;
+  });
+  const data = result.snapshot.val();
+  if (!data) throw new Error("없는 방 코드입니다.");
+  if (!data.players?.[myId]) throw new Error("방이 가득 찼습니다. 최대 4명입니다.");
   host = data.hostId === myId;
-  await api.update(api.ref(db, `rooms/${roomCode}/players/${myId}`), basePlayer(name, color));
   api.onDisconnect(api.ref(db, `rooms/${roomCode}/players/${myId}`)).remove();
   return data;
 }

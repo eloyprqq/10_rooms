@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=32";
+} from "./map.js?v=33";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -225,7 +225,7 @@ export function snapshot(state, t, hits) {
     reactor: state.reactor ? { ...state.reactor } : null,
     meltdown: state.meltdown,
     powerHoldUntil: state.powerHoldUntil || 0,
-    sediment: state.sediment && state.sediment.start ? { start: state.sediment.start } : { start: 0 },
+    sediment: state.sediment && state.sediment.start ? { start: state.sediment.start, until: state.sediment.until || state.sediment.start + 10 } : { start: 0 },
     monsters: state.monsters.map(publicMonster),
     hits,
   };
@@ -240,7 +240,8 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
   for (let t = state.time + 1; t <= next; t++) {
     const hits = [];
     if (t % 17 === 0 && !(state.powerHoldUntil && t <= state.powerHoldUntil)) state.power = false;
-    if (t % 50 === 0 && state.worldOpen && !state.sediment) state.sediment = { start: t };
+    if (state.sediment && t >= state.sediment.until) state.sediment = null;
+    if (t % 50 === 0 && state.worldOpen && !state.sediment) state.sediment = { start: t, until: t + 10 };
     if (t % 13 === 0 && !state.reactor && !state.meltdown && !state.reactorHalted) {
       state.reactor = { start: t, deadlineAt: now + 40000 };
     }

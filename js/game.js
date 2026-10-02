@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=32";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=32";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=32";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=32";
-import { TASKS, ANNEX_TASKS, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=32";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=32";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=33";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=33";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=33";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=33";
+import { TASKS, ANNEX_TASKS, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=33";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=33";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -329,7 +329,7 @@ function publish() {
     worldOpen: !!sim.worldOpen,
     reactorHalted: !!sim.reactorHalted,
     powerHoldUntil: sim.powerHoldUntil || 0,
-    sediment: sim.sediment && sim.sediment.start ? { start: sim.sediment.start } : { start: 0 },
+    sediment: sim.sediment && sim.sediment.start ? { start: sim.sediment.start, until: sim.sediment.until || sim.sediment.start + 10 } : { start: 0 },
     gateOpenUntil: sim.gateOpenUntil || 0,
     gateCardAt: sim.gateCardAt || 0,
     beat: Date.now(),
@@ -399,13 +399,16 @@ function consume(snap) {
   if ((snap.powerHoldUntil || 0) > (sim.powerHoldUntil || 0)) sim.powerHoldUntil = snap.powerHoldUntil;
   if (snap.sediment && snap.sediment.start) {
     if (!sim.sediment || sim.sediment.start !== snap.sediment.start) {
-      sim.sediment = { start: snap.sediment.start };
+      sim.sediment = { start: snap.sediment.start, until: snap.sediment.until || snap.sediment.start + 10 };
       if (state.seen.sediment !== snap.sediment.start) {
         state.seen.sediment = snap.sediment.start;
         toast("침전물 위험 신호가 열렸다. 침전조로 가라.");
       }
     }
-  } else if (snap.sediment && snap.sediment.start === 0) sim.sediment = null;
+  } else if (snap.sediment && snap.sediment.start === 0) {
+    if (sim.sediment && sim.time >= (sim.sediment.until || sim.sediment.start + 10)) toast("침전물 신호가 가라앉았다.");
+    sim.sediment = null;
+  }
   state.applied = snap.t;
   for (const it of inv) {
     if (it.type === "clock") it.left -= 1;
@@ -495,7 +498,7 @@ function applyFacility(world) {
   if ((world.powerHoldUntil || 0) > (sim.powerHoldUntil || 0)) sim.powerHoldUntil = world.powerHoldUntil;
   if (world.sediment && world.sediment.start) {
     if (!sim.sediment || sim.sediment.start !== world.sediment.start) {
-      sim.sediment = { start: world.sediment.start };
+      sim.sediment = { start: world.sediment.start, until: world.sediment.until || world.sediment.start + 10 };
       if (state.phase === "play" && state.seen.sediment !== world.sediment.start) {
         state.seen.sediment = world.sediment.start;
         toast("침전물 위험 신호가 열렸다. 침전조로 가라.");
@@ -1178,12 +1181,14 @@ function renderLobby(data) {
     .map((p) => `<li style="color:${p.color || "#eee"}">${escapeHtml(p.name || "탐색자")}</li>`)
     .join("");
   const n = players.length;
-  if (data.countdownEnd) {
-    const sec = Math.max(0, Math.ceil((data.countdownEnd - Date.now()) / 1000));
-    $("lobby-status").textContent = `${n}명 탑승. ${sec}초 후 시설로 진입한다.`;
-  } else {
-    $("lobby-status").textContent = `${n}명 대기 중. 2명이 모이면 출발한다. 난이도 ${data.difficulty || state.difficulty}`;
+  const start = $("lobby-start");
+  if (start) {
+    start.classList.toggle("hidden", !amHost());
+    start.disabled = !!state.launching;
   }
+  $("lobby-status").textContent = amHost()
+    ? `${n}/4명 대기. 시작을 누르면 출발한다. 난이도 ${data.difficulty || state.difficulty}`
+    : `${n}/4명 대기. 방장이 시작을 누르면 출발한다. 난이도 ${data.difficulty || state.difficulty}`;
 }
 
 function escapeHtml(s) {
@@ -1280,7 +1285,10 @@ function updateHud(lamp) {
     const sec = Math.max(0, Math.ceil((sim.reactor.deadlineAt - mark) / 1000));
     alarm = `원자로 멜트다운 — 남은 ${sec}초`;
   } else if (!sim.power) alarm = isGhost() ? "정전 · 유령은 어둠에 영향을 받지 않는다" : "정전 — 전기실에서 전선을 연결하라";
-  else if (sim.sediment) alarm = "침전물 위험 — 침전조에서 신호를 닫아라";
+  else if (sim.sediment) {
+    const left = Math.max(0, (sim.sediment.until || sim.sediment.start + 10) - sim.time);
+    alarm = `침전물 위험 — 게임 시간 ${left} 남음. 침전조에서 닫아라`;
+  }
   else if (playerRoom() === "gate" && player.alive) alarm = "개폐실 · 10초가 넘으면 숨이 막힌다";
   $("alarm-line").textContent = alarm;
   const d = danger();
@@ -1813,7 +1821,7 @@ function drawLobbyScene() {
   ctx.textAlign = "center";
   ctx.fillText("대기실", LOBBY.x + LOBBY.w / 2, LOBBY.y + 70);
   ctx.font = "14px sans-serif";
-  ctx.fillText("2명이 모이면 시설로 간다", LOBBY.x + LOBBY.w / 2, LOBBY.y + LOBBY.h - 36);
+  ctx.fillText("방장이 시작하면 시설로 간다 · 최대 4명", LOBBY.x + LOBBY.w / 2, LOBBY.y + LOBBY.h - 36);
   for (const o of others()) drawActor(o.x, o.y, o.facing || 0, o.color || "#88a", true);
   drawActor(player.x, player.y, player.facing, state.color, true);
   ctx.restore();
@@ -1843,7 +1851,6 @@ function loop(now) {
   if (state.phase === "menu") drawMenu(dt);
   else     if (state.phase === "lobby") {
     movePlayer(dt);
-    pollLobby();
     drawLobbyScene();
     if (now - state.lastPush > 120) {
       state.lastPush = now;
@@ -1901,28 +1908,15 @@ function closeTop() {
   return false;
 }
 
-function pollLobby() {
+function hostStart() {
   const data = state.roomData;
   if (state.phase !== "lobby" || !state.multi || !amHost() || !data || data.phase !== "lobby" || state.launching) return;
-  const count = data.players ? Object.keys(data.players).length : 0;
-  if (count >= 2 && !data.countdownEnd && !state.countdownSent) {
-    state.countdownSent = true;
-    pushRoom({ countdownEnd: Date.now() + 5000 });
-    return;
-  }
-  if (count < 2) {
-    state.countdownSent = false;
-    if (data.countdownEnd) pushRoom({ countdownEnd: 0 });
-    return;
-  }
-  if (data.countdownEnd && Date.now() >= data.countdownEnd) {
-    state.launching = true;
-    state.difficulty = data.difficulty || state.difficulty;
-    void (async () => {
-      await beginMatchLocal(null);
-      pushRoom({ phase: "playing", countdownEnd: 0, difficulty: state.difficulty });
-    })();
-  }
+  state.launching = true;
+  state.difficulty = data.difficulty || state.difficulty;
+  void (async () => {
+    await beginMatchLocal(null);
+    pushRoom({ phase: "playing", countdownEnd: 0, difficulty: state.difficulty });
+  })();
 }
 
 function goMenu() {
@@ -2018,6 +2012,7 @@ function bind() {
       $("multi-error").textContent = err.message || "참여하지 못했습니다.";
     }
   });
+  $("lobby-start").addEventListener("click", hostStart);
   $("lobby-leave").addEventListener("click", goMenu);
   $("resume").addEventListener("click", () => {
     state.paused = false;
