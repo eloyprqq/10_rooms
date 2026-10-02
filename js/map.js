@@ -811,8 +811,7 @@ export function drawSchematic(ctx, w, h, player, others = []) {
 }
 
 export function drawMinimap(ctx, w, h, player, monsters = [], world = 0, pending = []) {
-  const showBoth = annexIsOpen();
-  const frame = worldFrame(showBoth ? "both" : world === 1 ? 1 : 0);
+  const frame = worldFrame(world === 1 ? 1 : 0);
   const pendingSet = new Set(pending || []);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#171b22";
@@ -835,7 +834,7 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0, pending
   ctx.save();
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
-  if (showBoth || world !== 1) {
+  if (world !== 1) {
     ctx.lineCap = "butt";
     ctx.strokeStyle = "#3a414a";
     ctx.lineWidth = DIAG.half * 2;
