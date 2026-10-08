@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=43";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=43";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=43";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=43";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=43";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=43";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=44";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=44";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=44";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=44";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=44";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=44";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -1847,7 +1847,7 @@ function chasePrompt() {
   }
   if (n >= 3 && nearCannon()) return "E  대포를 조립하다";
   if (n >= 3) return "끝의 대포로 가라";
-  return `부품 ${n}/3 · 눈을 피해 달려라`;
+  return `부품 ${n}/3 · 벽을 피해 달려라`;
 }
 
 function lidState(l, now) {
@@ -1858,7 +1858,16 @@ function lidState(l, now) {
   return { shut, gy: mid - gap / 2, gh: gap };
 }
 
+function blinkOpen(phase, now) {
+  const t = (now / 1000 + phase) % 1.7;
+  if (t < 0.2) return t / 0.2;
+  if (t < 0.95) return 1;
+  if (t < 1.18) return 1 - (t - 0.95) / 0.23;
+  return 0;
+}
+
 function beamOn(h, now) {
+  if (h.on == null) return blinkOpen(h.phase, now) > 0.5;
   return (now / 1000 + h.phase) % h.period < h.on;
 }
 
@@ -1866,12 +1875,6 @@ function chaseBlocked(x, y) {
   if (!state.bossFight || state.eye?.caught) return false;
   for (const o of state.chaseBlocks || []) {
     if (x > o.x && x < o.x + o.w && y > o.y && y < o.y + o.h) return true;
-  }
-  const now = performance.now();
-  for (const l of state.chaseLids || []) {
-    if (x < l.x || x > l.x + l.w) continue;
-    const g = lidState(l, now);
-    if (y < g.gy + 12 || y > g.gy + g.gh - 12) return true;
   }
   return false;
 }
@@ -1882,54 +1885,45 @@ function buildChaseCourse() {
   const h = hall.h;
   const mid = y0 + h / 2;
   const run = hall.w - 320;
-  const top = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 82, h: 86 });
-  const bot = (ox) => ({ x: hall.x + ox, y: y0 + h - 94, w: 82, h: 86 });
+  const top = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 92, h: 92, kind: "top" });
+  const bot = (ox) => ({ x: hall.x + ox, y: y0 + h - 100, w: 92, h: 92, kind: "bot" });
+  const pinch = (ox) => ({ x: hall.x + ox, y: y0 + 70, w: 70, h: 100, kind: "pinch" });
+  const tall = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 52, h: h - 86, kind: "tall" });
+  const low = (ox) => ({ x: hall.x + ox, y: y0 + 86, w: 96, h: h - 94, kind: "low" });
   const blocks = [];
-  const lids = [];
   const lasers = [];
   const eyes = [];
+  const make = [top, bot, pinch, tall, low];
   let i = 0;
-  for (let ox = 240; ox < run; ox += 300, i++) {
-    const kind = i % 7;
-    if (kind === 0 || kind === 4) {
-      lids.push({
-        x: hall.x + ox,
-        y: y0,
-        w: 68,
-        h,
-        phase: i * 0.23,
-        period: kind === 4 ? 1.2 : 1.55,
-        shutDur: kind === 4 ? 0.32 : 0.4,
-        gapOpen: h - 24,
-        gapShut: kind === 4 ? 72 : 98,
-      });
-    } else if (kind === 1) {
-      lasers.push({ x: hall.x + ox, y: y0 + 14, w: 170, h: 30, phase: i * 0.19, period: 1.28, on: 0.38 });
-    } else if (kind === 2) {
-      lasers.push({ x: hall.x + ox, y: y0 + h - 44, w: 170, h: 30, phase: i * 0.17, period: 1.15, on: 0.34 });
-    } else if (kind === 3) {
-      lasers.push({ x: hall.x + ox + 20, y: y0 + 18, w: 22, h: h - 36, phase: i * 0.21, period: 1.4, on: 0.3 });
-    } else if (kind === 5) {
-      eyes.push({
-        x: hall.x + ox + 20,
-        y: i % 2 === 0 ? y0 + 10 : y0 + h - 10,
-        side: i % 2 === 0 ? 1 : -1,
-        phase: i * 0.31,
-      });
-    } else if (i % 14 === 6) {
-      blocks.push(i % 2 ? top(ox) : bot(ox));
+  for (let ox = 260; ox < run; ox += 310, i++) {
+    const block = make[i % 5](ox);
+    blocks.push(block);
+    const phase = i * 0.27;
+    const cx = block.x + block.w / 2;
+    let ex = cx;
+    let ey = block.y + block.h / 2;
+    let laser = null;
+    if (block.kind === "top") {
+      ey = block.y + block.h - 6;
+      laser = { x: block.x - 8, y: block.y + block.h + 2, w: block.w + 16, h: 26, phase };
+    } else if (block.kind === "bot") {
+      ey = block.y + 6;
+      laser = { x: block.x - 8, y: block.y - 28, w: block.w + 16, h: 26, phase };
+    } else if (block.kind === "tall") {
+      ey = block.y + block.h - 8;
+      laser = { x: block.x - 16, y: block.y + block.h + 2, w: block.w + 70, h: 24, phase };
+    } else if (block.kind === "low") {
+      ey = block.y + 8;
+      laser = { x: block.x - 16, y: block.y - 26, w: block.w + 40, h: 24, phase };
+    } else {
+      ex = block.x + block.w - 8;
+      laser = { x: block.x + block.w + 2, y: ey - 12, w: 88, h: 24, phase };
     }
-  }
-  for (let ox = 500; ox < run - 80; ox += 380, i++) {
-    eyes.push({
-      x: hall.x + ox,
-      y: i % 2 === 0 ? y0 + 10 : y0 + h - 10,
-      side: i % 2 === 0 ? 1 : -1,
-      phase: i * 0.29,
-    });
+    eyes.push({ x: ex, y: ey, phase, host: true });
+    lasers.push(laser);
   }
   state.chaseBlocks = blocks;
-  state.chaseLids = lids;
+  state.chaseLids = [];
   state.chaseLasers = lasers;
   state.wallEyes = eyes;
   state.eyeParts = [
@@ -2145,6 +2139,10 @@ function shoveForward() {
 }
 
 function wallEyePos(eye, now) {
+  if (eye.host) {
+    const open = blinkOpen(eye.phase, now);
+    return { x: eye.x, y: eye.y, r: 13 + open * 5, pop: open };
+  }
   const pop = peekAmt(eye.phase, now, 1.7);
   return { x: eye.x, y: eye.y + eye.side * (18 + pop * 62), r: 16 + pop * 10, pop };
 }
@@ -2224,22 +2222,13 @@ function drawEyeCombat() {
   }
   ctx.restore();
   for (const o of state.chaseBlocks || []) {
-    ctx.fillStyle = "#2a2420";
+    ctx.fillStyle = "#1c1a16";
     ctx.fillRect(o.x, o.y, o.w, o.h);
-    ctx.strokeStyle = "#5a4a3a";
-    ctx.lineWidth = 2;
+    ctx.fillStyle = "#2c2822";
+    ctx.fillRect(o.x + 6, o.y + 6, o.w - 12, o.h - 12);
+    ctx.strokeStyle = "#5a5044";
+    ctx.lineWidth = 3;
     ctx.strokeRect(o.x + 1, o.y + 1, o.w - 2, o.h - 2);
-  }
-  for (const l of state.chaseLids || []) {
-    const g = lidState(l, now);
-    ctx.fillStyle = g.shut ? "rgba(225, 29, 46, 0.62)" : "rgba(225, 29, 46, 0.18)";
-    ctx.beginPath();
-    ctx.ellipse(l.x + l.w / 2, l.y + l.h / 2, l.w * 0.92, l.h / 2 - 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#100206";
-    ctx.fillRect(l.x, l.y, l.w, Math.max(0, g.gy - l.y));
-    ctx.fillRect(l.x, g.gy + g.gh, l.w, Math.max(0, l.y + l.h - (g.gy + g.gh)));
-    drawLidEye(l.x + l.w / 2, l.y + l.h / 2, 15, g.shut ? 0.08 : 0.95);
   }
   for (const b of state.chaseLasers || []) {
     if (!beamOn(b, now)) continue;
@@ -2250,8 +2239,7 @@ function drawEyeCombat() {
   }
   for (const w of state.wallEyes || []) {
     const p = wallEyePos(w, now);
-    if (p.pop <= 0) continue;
-    drawLidEye(p.x, p.y, p.r, p.pop < 0.45 ? p.pop : 0.95);
+    drawLidEye(p.x, p.y, p.r, 0.08 + p.pop * 0.9);
   }
   for (const p of state.eyeParts || []) {
     if (p.got) continue;
