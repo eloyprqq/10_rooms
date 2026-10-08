@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=44";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=44";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=44";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=44";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=44";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=44";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=45";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=45";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=45";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=45";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=45";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=45";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -1191,7 +1191,7 @@ function useSelected() {
       toast("이 방에 쓰러진 사람이 없다.");
       return;
     }
-    sendRevive(target.id);
+    sendRevive(target.id, player.x, player.y);
     removeItem(item);
     toast("붕대를 감았다.");
   } else if (item.type === "clock") {
@@ -1280,6 +1280,12 @@ function onRoom(data) {
     const me = data.players?.[bodyId()];
     if (me?.reviveAt && me.reviveAt !== state.seen.revive && !player.alive) {
       state.seen.revive = me.reviveAt;
+      const rx = Number(me.reviveX);
+      const ry = Number(me.reviveY);
+      if (Number.isFinite(rx) && Number.isFinite(ry)) {
+        player.x = rx;
+        player.y = ry;
+      }
       player.alive = true;
       player.hp = 50;
       player.corpse = null;
@@ -1895,7 +1901,7 @@ function buildChaseCourse() {
   const eyes = [];
   const make = [top, bot, pinch, tall, low];
   let i = 0;
-  for (let ox = 260; ox < run; ox += 310, i++) {
+  for (let ox = 140; ox < run; ox += 150, i++) {
     const block = make[i % 5](ox);
     blocks.push(block);
     const phase = i * 0.27;
@@ -1919,8 +1925,10 @@ function buildChaseCourse() {
       ex = block.x + block.w - 8;
       laser = { x: block.x + block.w + 2, y: ey - 12, w: 88, h: 24, phase };
     }
-    eyes.push({ x: ex, y: ey, phase, host: true });
-    lasers.push(laser);
+    if (i % 2 === 0) {
+      eyes.push({ x: ex, y: ey, phase, host: true });
+      lasers.push(laser);
+    }
   }
   state.chaseBlocks = blocks;
   state.chaseLids = [];

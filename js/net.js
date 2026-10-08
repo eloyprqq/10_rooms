@@ -1,4 +1,4 @@
-import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=44";
+import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=45";
 
 export { isFirebaseConfigured };
 
@@ -131,9 +131,13 @@ export function signal(data) {
   api.update(api.ref(db, `rooms/${roomCode}`), data).catch(() => {});
 }
 
-export function sendRevive(targetId) {
+export function sendRevive(targetId, x, y) {
   if (!db || !roomCode) return;
-  api.update(api.ref(db, `rooms/${roomCode}/players/${targetId}`), { reviveAt: Date.now() }).catch(() => {});
+  api.update(api.ref(db, `rooms/${roomCode}/players/${targetId}`), {
+    reviveAt: Date.now(),
+    reviveX: Math.round(x),
+    reviveY: Math.round(y),
+  }).catch(() => {});
 }
 
 function lootPayload(item) {
