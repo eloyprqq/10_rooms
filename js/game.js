@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=41";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=41";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=41";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=41";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=41";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=41";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=42";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=42";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=42";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=42";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=42";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=42";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -1856,24 +1856,53 @@ function buildChaseCourse() {
   const hall = endlessRect();
   const y0 = hall.y;
   const h = hall.h;
-  const top = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 86, h: 88 });
-  const bot = (ox) => ({ x: hall.x + ox, y: y0 + h - 96, w: 86, h: 88 });
-  state.chaseBlocks = [top(420), bot(780), top(1180), bot(1580), top(1980), bot(2380)];
   const mid = y0 + h / 2;
+  const run = hall.w - 320;
+  const top = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 82, h: 86 });
+  const bot = (ox) => ({ x: hall.x + ox, y: y0 + h - 94, w: 82, h: 86 });
+  const pinch = (ox) => ({ x: hall.x + ox, y: y0 + 70, w: 64, h: 100 });
+  const tall = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 48, h: h - 86 });
+  const low = (ox) => ({ x: hall.x + ox, y: y0 + 86, w: 90, h: h - 94 });
+  const blocks = [];
+  let i = 0;
+  for (let ox = 260; ox < run; ox += 310, i++) {
+    const kind = i % 5;
+    if (kind === 0) blocks.push(top(ox));
+    else if (kind === 1) blocks.push(bot(ox));
+    else if (kind === 2) blocks.push(pinch(ox));
+    else if (kind === 3) blocks.push(tall(ox));
+    else blocks.push(low(ox));
+  }
+  state.chaseBlocks = blocks;
   state.eyeParts = [
-    { id: "barrel", name: "포신", x: hall.x + 560, y: mid + 52, got: false },
-    { id: "mount", name: "포대", x: hall.x + 1360, y: mid - 52, got: false },
-    { id: "shell", name: "포탄", x: hall.x + 2160, y: mid + 52, got: false },
+    { id: "barrel", name: "포신", x: hall.x + run * 0.18, y: mid + 52, got: false },
+    { id: "mount", name: "포대", x: hall.x + run * 0.48, y: mid - 52, got: false },
+    { id: "shell", name: "포탄", x: hall.x + run * 0.78, y: mid + 52, got: false },
   ];
+  for (const p of state.eyeParts) {
+    const tryY = [mid, y0 + 42, y0 + h - 42, mid + 40, mid - 40];
+    if (!chaseBlocked(p.x, p.y) && isWalkable(p.x, p.y)) continue;
+    for (const y of tryY) {
+      if (!chaseBlocked(p.x, y) && isWalkable(p.x, y)) {
+        p.y = y;
+        break;
+      }
+    }
+  }
   const pad = cannonSpot();
   state.cannon = { x: pad.x, y: pad.y, assembled: false, angle: Math.PI, ammo: 3, cool: 0 };
   state.eyeBall = null;
-  state.wallEyes = [640, 1020, 1480, 1900, 2320].map((ox, i) => ({
-    x: hall.x + ox,
-    y: i % 2 === 0 ? y0 + 10 : y0 + h - 10,
-    side: i % 2 === 0 ? 1 : -1,
-    phase: i * 0.41,
-  }));
+  const eyes = [];
+  let ei = 0;
+  for (let ox = 380; ox < run - 80; ox += 420, ei++) {
+    eyes.push({
+      x: hall.x + ox,
+      y: ei % 2 === 0 ? y0 + 10 : y0 + h - 10,
+      side: ei % 2 === 0 ? 1 : -1,
+      phase: ei * 0.37,
+    });
+  }
+  state.wallEyes = eyes;
 }
 
 function spawnEyeBehind() {
