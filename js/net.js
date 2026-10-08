@@ -1,4 +1,4 @@
-import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=47";
+import { firebaseConfig, isFirebaseConfigured } from "./firebase-config.js?v=48";
 
 export { isFirebaseConfigured };
 
