@@ -94,6 +94,36 @@ button { cursor: pointer; }
   text-align: left;
 }
 
+#admin-tools {
+  position: absolute;
+  top: 168px;
+  left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+#admin-tools button {
+  min-width: 120px;
+  padding: 6px 10px;
+  border: 2px solid #8a949e;
+  border-radius: 8px;
+  background: rgba(16, 20, 26, 0.92);
+  color: #d7dde6;
+  font: 600 12px "IBM Plex Sans KR", sans-serif;
+}
+
+#admin-tools button.on {
+  border-color: #9aab8d;
+  color: #8dff78;
+}
+
+#admin-tools button:disabled {
+  opacity: 0.45;
+}
+
 #task-label {
   font-size: 13px;
   letter-spacing: 0.12em;

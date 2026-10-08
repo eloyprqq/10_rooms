@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=33";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=33";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=33";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=33";
-import { TASKS, ANNEX_TASKS, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=33";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=33";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=34";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=34";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=34";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=34";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=34";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=34";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -68,6 +68,11 @@ const state = {
   clockMood: "",
   launching: false,
   countdownSent: false,
+  admin: false,
+  adminTasks: false,
+  adminGod: false,
+  adminFast: false,
+  bossFight: false,
 };
 
 const player = { x: 950, y: 478, facing: 0, hp: 100, alive: true, r: 12 };
@@ -107,6 +112,63 @@ function hide(id) {
 
 function syncAdmin() {
   state.admin = String(state.name || "").trim().toLowerCase() === "adminstar";
+  if (!state.admin) {
+    state.adminTasks = false;
+    state.adminGod = false;
+    state.adminFast = false;
+  }
+  paintAdminTools();
+}
+
+function inBossFight() {
+  return !!state.bossFight || state.phase === "boss";
+}
+
+function paintAdminTools() {
+  const box = $("admin-tools");
+  if (!box) return;
+  box.classList.toggle("hidden", !state.admin || (state.phase !== "play" && state.phase !== "lobby"));
+  const tasks = $("admin-tasks");
+  const god = $("admin-god");
+  const fast = $("admin-fast");
+  if (tasks) {
+    tasks.classList.toggle("on", !!state.adminTasks);
+    tasks.textContent = state.adminTasks ? "미션 on" : "미션 off";
+  }
+  if (god) {
+    god.classList.toggle("on", !!state.adminGod);
+    god.textContent = state.adminGod ? "무적 on" : "무적 off";
+  }
+  if (fast) {
+    const blocked = inBossFight();
+    fast.disabled = blocked;
+    fast.classList.toggle("on", !!state.adminFast && !blocked);
+    fast.textContent = blocked ? "속도 보스" : state.adminFast ? "속도 on" : "속도 off";
+  }
+}
+
+function applyCompleteAll() {
+  if (!sim) return;
+  const rooms = DATA_ROOMS.concat(ANNEX_DATA);
+  sim.dataGot = [...new Set([...(sim.dataGot || []), ...rooms])];
+  for (const task of TASKS.concat(ANNEX_TASKS)) {
+    if (!(sim.doneTasks || []).includes(task.id)) sim.doneTasks.push(task.id);
+  }
+  if (!sim.worldOpen) noteProgress();
+  toast("모든 미션을 마쳤다.");
+  state.taskSig = null;
+  updateTaskbar();
+  if (state.multi && amHost()) publish();
+}
+
+function requestCompleteAll() {
+  if (!sim || !state.admin) return;
+  if (state.multi && !amHost()) {
+    signal({ taskAt: Date.now(), taskKind: "adminAll", taskRoom: "all" });
+    toast("미션 완료를 요청했다.");
+    return;
+  }
+  applyCompleteAll();
 }
 
 function bodyId() {
@@ -217,6 +279,7 @@ function rollSupply() {
 
 function hurt(amount, source) {
   if (!player.alive || state.phase === "dead") return;
+  if (state.admin && state.adminGod) return;
   player.hp -= amount;
   state.shake = 14;
   playHurt();
@@ -1156,6 +1219,7 @@ function onRoom(data) {
       if (data.taskAt && data.taskAt !== state.seen.task && data.taskRoom) {
         state.seen.task = data.taskAt;
         if (data.taskKind === "download") noteDownload(data.taskRoom);
+        else if (data.taskKind === "adminAll") applyCompleteAll();
         else finishTask(data.taskRoom);
       }
     }
@@ -1220,7 +1284,8 @@ function movePlayer(dt) {
   const len = Math.hypot(x, y);
   if (!len) return;
   const boost = performance.now() < state.boostUntil ? 1.5 : 1;
-  const speed = (state.phase === "lobby" ? 240 : 230) * boost;
+  const cheat = state.admin && state.adminFast && !inBossFight() ? 2 : 1;
+  const speed = (state.phase === "lobby" ? 240 : 230) * boost * cheat;
   const dx = (x / len) * speed * dt;
   const dy = (y / len) * speed * dt;
   player.facing = Math.atan2(y, x);
@@ -1300,6 +1365,7 @@ function updateHud(lamp) {
     state.clockMood = mood;
     setMood({ heartbeat: ghost ? 0 : d, alarm: !!sim.reactor, powerOff: !sim.power && !ghost });
   }
+  paintAdminTools();
   $("net-pill").classList.toggle("hidden", !state.multi);
   if (state.multi) $("net-pill").textContent = currentCode();
   if (state.dirty) renderHotbar();
@@ -1438,6 +1504,10 @@ function crossesGate(x, y) {
 
 function tickChoke(dt) {
   if (state.paused || !player.alive || isGhost() || state.phase !== "play") return;
+  if (state.admin && state.adminGod) {
+    state.gateStay = 0;
+    return;
+  }
   if (playerRoom() !== "gate") {
     state.gateStay = 0;
     return;
@@ -1925,6 +1995,7 @@ function goMenu() {
   state.paused = false;
   state.launching = false;
   state.countdownSent = false;
+  paintAdminTools();
   closeMinigames();
   closeMission();
   hide("hud");
@@ -1947,6 +2018,28 @@ function bind() {
   $("task-toggle").addEventListener("click", () => {
     $("task-list").classList.toggle("hidden");
     updateTaskbar();
+  });
+  $("admin-tasks").addEventListener("click", () => {
+    if (!state.admin) return;
+    state.adminTasks = !state.adminTasks;
+    if (state.adminTasks) requestCompleteAll();
+    else toast("이미 끝난 미션은 되돌리지 않는다.");
+    paintAdminTools();
+  });
+  $("admin-god").addEventListener("click", () => {
+    if (!state.admin) return;
+    state.adminGod = !state.adminGod;
+    toast(state.adminGod ? "무적이다." : "무적이 꺼졌다.");
+    paintAdminTools();
+  });
+  $("admin-fast").addEventListener("click", () => {
+    if (!state.admin || inBossFight()) {
+      toast("보스전에서는 속도를 쓸 수 없다.");
+      return;
+    }
+    state.adminFast = !state.adminFast;
+    toast(state.adminFast ? "속도 200%." : "속도가 원래대로다.");
+    paintAdminTools();
   });
   for (const btn of document.querySelectorAll(".diff")) {
     btn.addEventListener("click", () => {

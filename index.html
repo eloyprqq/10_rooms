@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=14" />
+  <link rel="stylesheet" href="css/style.css?v=15" />
 </head>
 <body>
   <canvas id="view"></canvas>
@@ -22,6 +22,11 @@
         <div class="task-track"><div id="task-fill"></div></div>
       </button>
       <ul id="task-list" class="hidden"></ul>
+    </div>
+    <div id="admin-tools" class="hidden">
+      <button id="admin-tasks" type="button">미션 off</button>
+      <button id="admin-god" type="button">무적 off</button>
+      <button id="admin-fast" type="button">속도 off</button>
     </div>
     <div id="hp-wrap">
       <div class="hp-label"><span>체력</span><b id="hp-num">100</b></div>
@@ -257,6 +262,6 @@
     </div>
   </section>
 
-  <script type="module" src="js/game.js?v=33"></script>
+  <script type="module" src="js/game.js?v=34"></script>
 </body>
 </html>
