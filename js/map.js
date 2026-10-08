@@ -216,9 +216,9 @@ const endlessHall = tagSky({
   b: "trial",
   kind: "rect",
   x: byId.trial.x + byId.trial.w,
-  y: byId.trial.y + byId.trial.h / 2 - SKY_HALL / 2,
+  y: byId.trial.y + byId.trial.h / 2 - 120,
   w: 2400,
-  h: SKY_HALL,
+  h: 240,
 });
 
 const skyCorridors = [

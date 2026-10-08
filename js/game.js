@@ -1,10 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=37";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=37";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=37";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=37";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=37";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=37";
-import { initDash, openDash, closeDash, dashOpen } from "./dash.js?v=37";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=38";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=38";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=38";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=38";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=38";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=38";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -667,8 +666,10 @@ function resetRun(difficulty) {
   resetAnnex();
   state.bossFight = false;
   state.eye = null;
-  state.dashLock = false;
-  closeDash(false);
+  state.eyeScene = null;
+  state.eyeHazards = [];
+  state.eyeShots = [];
+  state.eyeHitAt = 0;
   closeMinigames();
   closeMission();
   hide("map-overlay");
@@ -770,7 +771,7 @@ function stopClock() {
 }
 
 function tickReactor() {
-  if (dashOpen()) return;
+  if (eyeSceneHold()) return;
   if (!sim?.reactor || sim.meltdown || state.paused || state.phase !== "play") return;
   if (state.multi && !amHost()) return;
   if (Date.now() < sim.reactor.deadlineAt) return;
@@ -780,28 +781,8 @@ function tickReactor() {
   if (state.multi) publish();
 }
 
-function tickDashEnter() {
-  if (!state.bossFight || state.eye?.caught || dashOpen() || state.dashLock) return;
-  if (locate(player.x, player.y).id !== "trial") return;
-  state.dashLock = true;
-  openDash({
-    color: state.color,
-    onWin() {
-      state.bossFight = false;
-      if (state.eye) state.eye.caught = true;
-      state.dashLock = false;
-      toast("눈을 잡았다.");
-      paintAdminTools();
-    },
-    onAbort() {
-      state.dashLock = false;
-      toast("도전로에서 다시 시작할 수 있다.");
-    },
-  });
-}
-
 function tickTime(dt) {
-  if (dashOpen()) return;
+  if (eyeSceneHold()) return;
   if (!clockOn || state.phase !== "play" || state.paused || !sim) return;
   if (!state.multi && !player.alive) return;
   if (state.multi && !amHost()) return;
@@ -838,7 +819,7 @@ function fixReactor() {
 }
 
 function busy() {
-  return minigameOpen() || missionOpen() || dashOpen();
+  return minigameOpen() || missionOpen();
 }
 
 function finishTask(roomId) {
@@ -1334,7 +1315,7 @@ function resize() {
 }
 
 function movePlayer(dt) {
-  if (state.paused || busy()) return;
+  if (state.paused || busy() || eyeSceneHold()) return;
   if (!player.alive && !isGhost()) return;
   if ($("map-overlay").classList.contains("hidden") === false) return;
   if (!$("cctv-overlay").classList.contains("hidden")) return;
@@ -1355,7 +1336,7 @@ function movePlayer(dt) {
     dy = (y / len) * speed * dt;
     player.facing = Math.atan2(y, x);
   }
-  if (state.bossFight && locate(player.x, player.y).id === "endless") dx -= 110 * dt;
+  if (state.bossFight && locate(player.x, player.y).id === "endless") dx -= 70 * dt;
   if (!dx && !dy) return;
   if (isGhost()) {
     player.x = Math.max(WORLD.minX, Math.min(WORLD.maxX, player.x + dx));
@@ -1464,7 +1445,7 @@ function promptText() {
   }
   if (loc.id === "trial") {
     if (state.eye?.caught) return "눈을 잡았다";
-    if (state.bossFight) return "눈이 온다";
+    if (state.bossFight) return "위아래로 피하면서 눈을 쫓아라";
     return "먼저 괴물개방에서 눈을 놓아라";
   }
   const actions = actionsFor(loc.id, missionProgress());
@@ -1592,32 +1573,207 @@ function startBoss() {
   }
   const hall = endlessRect();
   state.bossFight = true;
-  state.eye = { x: hall.x + hall.w - 120, y: hall.y + hall.h / 2, vx: -280, caught: false };
+  state.eyeScene = null;
+  state.eyeHazards = [];
+  state.eyeShots = [];
+  state.eyeHitAt = 0;
+  state.eye = { x: hall.x + hall.w - 160, y: hall.y + hall.h / 2, vx: 0, caught: false, shotAt: 0 };
   toast("도전로로 들어가라. 눈이 기다린다.");
   paintAdminTools();
 }
 
+function eyeSceneHold() {
+  const s = state.eyeScene;
+  return !!(s && s.t < s.dur);
+}
+
+function buildEyeHazards() {
+  const hall = endlessRect();
+  const y0 = hall.y;
+  const h = hall.h;
+  const lids = (xs, gapShut, period, shut, phaseStep) => xs.map((ox, i) => ({
+    kind: "lid",
+    x: hall.x + ox,
+    w: 72,
+    y: y0,
+    h,
+    gapShut,
+    period,
+    shut,
+    phase: i * phaseStep,
+  }));
+  state.eyeHazards = [
+    ...lids([280, 500, 720], 92, 1.45, 0.3, 0.48),
+    ...lids([980, 1180, 1380], 64, 1.05, 0.34, 0.33),
+    { kind: "beam", x: hall.x + 1540, y: y0 + 28, w: 150, h: 36, period: 1.2, on: 0.34, phase: 0 },
+    { kind: "beam", x: hall.x + 1720, y: y0 + h - 64, w: 150, h: 36, period: 1.2, on: 0.34, phase: 0.55 },
+    { kind: "beam", x: hall.x + 1900, y: y0 + h / 2 - 18, w: 130, h: 36, period: 0.95, on: 0.28, phase: 0.2 },
+    { kind: "blink", x: hall.x + 1080, w: 420, y: y0, h },
+  ];
+}
+
+function lidGap(h, now) {
+  const t = (now / 1000 + h.phase) % h.period;
+  const shut = t < h.shut;
+  const mid = h.y + h.h / 2;
+  const gap = shut ? h.gapShut : h.h - 36;
+  return { shut, y: mid - gap / 2, h: gap };
+}
+
+function beamOn(h, now) {
+  const t = (now / 1000 + h.phase) % h.period;
+  return t < h.on;
+}
+
+function tickEyeScene(dt) {
+  if (!state.bossFight || state.eye?.caught) return;
+  const loc = locate(player.x, player.y);
+  if (!state.eyeScene && (loc.id === "trial" || loc.id === "endless")) {
+    state.eyeScene = { t: 0, dur: 2.2 };
+    buildEyeHazards();
+  }
+  if (!state.eyeScene) return;
+  state.eyeScene.t += dt;
+}
+
 function tickEye(dt) {
-  if (dashOpen()) return;
+  if (eyeSceneHold()) return;
   if (!state.bossFight || !state.eye) return;
   const hall = endlessRect();
   const e = state.eye;
-  e.x += e.vx * dt;
-  if (e.x > hall.x + hall.w - 80) {
-    e.x = hall.x + hall.w - 80;
-    e.vx = -Math.abs(e.vx);
-  } else if (e.x < hall.x + 80) {
-    e.x = hall.x + 80;
-    e.vx = Math.abs(e.vx);
+  const now = performance.now();
+  e.y = hall.y + hall.h / 2 + Math.sin(now / 280) * 40;
+  const loc = locate(player.x, player.y);
+  if (loc.id === "endless" && now - (e.shotAt || 0) > 2100) {
+    e.shotAt = now;
+    const lane = player.y < hall.y + hall.h / 2 ? hall.y + 58 : hall.y + hall.h - 58;
+    state.eyeShots.push({ x: e.x - 40, y: lane, vx: -420, r: 22 });
   }
-  e.y = hall.y + hall.h / 2 + Math.sin(performance.now() / 180) * 34;
+  state.eyeShots = (state.eyeShots || []).filter((s) => {
+    s.x += s.vx * dt;
+    return s.x > hall.x - 40;
+  });
+  tickEyeHit(now);
   if (!player.alive) return;
   if (Math.hypot(player.x - e.x, player.y - e.y) < 58) {
     state.bossFight = false;
     e.caught = true;
+    state.eyeHazards = [];
+    state.eyeShots = [];
     toast("눈을 잡았다.");
     paintAdminTools();
   }
+}
+
+function tickEyeHit(now) {
+  if (!player.alive || isGhost()) return;
+  if (state.admin && state.adminGod) return;
+  if (now - (state.eyeHitAt || 0) < 750) return;
+  const loc = locate(player.x, player.y);
+  if (loc.id !== "endless" && loc.id !== "trial") return;
+  const r = 14;
+  for (const h of state.eyeHazards || []) {
+    if (h.kind === "lid") {
+      const g = lidGap(h, now);
+      const inX = player.x > h.x && player.x < h.x + h.w;
+      const inGap = player.y > g.y + r && player.y < g.y + g.h - r;
+      if (inX && !inGap) {
+        state.eyeHitAt = now;
+        hurt(32, "eye");
+        toast("눈이 감겼다.");
+        return;
+      }
+    }
+    if (h.kind === "beam" && beamOn(h, now)) {
+      if (player.x > h.x && player.x < h.x + h.w && player.y > h.y && player.y < h.y + h.h) {
+        state.eyeHitAt = now;
+        hurt(32, "eye");
+        toast("레이저.");
+        return;
+      }
+    }
+  }
+  for (const s of state.eyeShots || []) {
+    if (Math.hypot(player.x - s.x, player.y - s.y) < s.r + r) {
+      state.eyeHitAt = now;
+      hurt(32, "eye");
+      toast("눈을 피하라.");
+      return;
+    }
+  }
+}
+
+function drawEyeHazards(now) {
+  if (!state.bossFight || state.eye?.caught) return;
+  for (const h of state.eyeHazards || []) {
+    if (h.kind === "lid") {
+      const g = lidGap(h, now);
+      ctx.fillStyle = g.shut ? "rgba(225, 29, 46, 0.82)" : "rgba(225, 29, 46, 0.22)";
+      ctx.beginPath();
+      ctx.ellipse(h.x + h.w / 2, h.y + h.h / 2, h.w * 0.85, h.h / 2 - 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#140308";
+      ctx.fillRect(h.x, h.y, h.w, Math.max(0, g.y - h.y));
+      ctx.fillRect(h.x, g.y + g.h, h.w, Math.max(0, h.y + h.h - (g.y + g.h)));
+      ctx.fillStyle = "#e11d2e";
+      ctx.beginPath();
+      ctx.arc(h.x + h.w / 2, h.y + h.h / 2, 11, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (h.kind === "beam" && beamOn(h, now)) {
+      ctx.fillStyle = "rgba(225, 40, 48, 0.8)";
+      ctx.fillRect(h.x, h.y, h.w, h.h);
+    }
+  }
+  for (const s of state.eyeShots || []) {
+    ctx.fillStyle = "#e8eaee";
+    ctx.beginPath();
+    ctx.ellipse(s.x, s.y, 26, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#e11d2e";
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawEyeScene() {
+  const s = state.eyeScene;
+  if (!s) return;
+  const fade = s.t < s.dur ? Math.min(1, s.t / 0.28) : Math.max(0, 1 - (s.t - s.dur) / 0.45);
+  if (fade <= 0) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = `rgba(0,0,0,${0.72 * fade})`;
+  ctx.fillRect(0, 0, viewW, viewH);
+  const openLid = Math.min(1, Math.max(0, (s.t - 0.25) / 0.7));
+  ctx.translate(viewW / 2, viewH * 0.42);
+  ctx.scale(1, 0.14 + openLid * 0.86);
+  ctx.globalAlpha = fade;
+  ctx.fillStyle = "#e8eaee";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 150, 88, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#e11d2e";
+  ctx.beginPath();
+  ctx.arc(0, 0, 52, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#2a0306";
+  ctx.beginPath();
+  ctx.arc(0, 0, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  ctx.globalAlpha = fade * Math.min(1, Math.max(0, s.t - 1.05));
+  ctx.fillStyle = "#e11d2e";
+  ctx.font = '700 40px "Black Han Sans", "IBM Plex Sans KR", sans-serif';
+  ctx.textAlign = "center";
+  ctx.fillText("I SEE YOU", viewW / 2, viewH * 0.78);
+  ctx.restore();
 }
 
 function drawEye() {
@@ -1644,6 +1800,16 @@ function drawEye() {
   ctx.arc(8, -8, 6, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+}
+
+function drawEyeBlink(now) {
+  if (!state.bossFight || state.eye?.caught || eyeSceneHold()) return;
+  const zone = (state.eyeHazards || []).find((h) => h.kind === "blink");
+  if (!zone) return;
+  if (player.x < zone.x || player.x > zone.x + zone.w) return;
+  if (Math.sin(now / 95) < 0.28) return;
+  ctx.fillStyle = "rgba(0,0,0,0.72)";
+  ctx.fillRect(0, 0, viewW, viewH);
 }
 
 function tickChoke(dt) {
@@ -1894,6 +2060,7 @@ function drawFacility(now, lamp) {
   const sky = skyLayer();
   if (sky) ctx.drawImage(sky.canvas, sky.x, sky.y);
   paintSkyLive(ctx);
+  drawEyeHazards(now);
   drawLever();
   drawGateSeal();
   for (const g of ground) {
@@ -1924,6 +2091,8 @@ function drawFacility(now, lamp) {
   drawShieldLights(now);
   drawPings();
   drawEye();
+  drawEyeBlink(now);
+  drawEyeScene();
   for (const m of sim.monsters) {
     const g = ghosts.get(m.id) || anchorOf(m.place);
     if (!monsterLit(g.x, g.y)) continue;
@@ -2077,7 +2246,7 @@ function loop(now) {
     if (state.roomData) renderLobby(state.roomData);
   } else if (state.phase === "play" || state.phase === "dead") {
     if (state.phase === "play") {
-      tickDashEnter();
+      tickEyeScene(dt);
       movePlayer(dt);
       tickTime(dt);
       tickReactor();
@@ -2104,10 +2273,6 @@ function typing() {
 }
 
 function closeTop() {
-  if (dashOpen()) {
-    closeDash(true);
-    return true;
-  }
   if (busy()) {
     closeMinigames();
     closeMission();
@@ -2150,7 +2315,6 @@ function goMenu() {
   state.launching = false;
   state.countdownSent = false;
   paintAdminTools();
-  closeDash(false);
   closeMinigames();
   closeMission();
   hide("hud");
@@ -2289,7 +2453,6 @@ function bind() {
   try {
     initMinigames({ onPower: fixPower, onReactor: fixReactor, onGate: finishGate });
     initMissions({ onDone: finishTask, onDownload: noteDownload, onSignal: clearSediment });
-    initDash();
   } catch (err) {
     console.error(err);
   }
@@ -2306,7 +2469,6 @@ function bind() {
   window.addEventListener("keyup", (e) => keys.delete(e.code));
   window.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    if (dashOpen()) return;
     if (e.target.closest && e.target.closest("button, input, a, .panel")) return;
     pointer = true;
     const item = inv[selected];

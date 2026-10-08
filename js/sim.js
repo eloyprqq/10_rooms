@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=37";
+} from "./map.js?v=38";
 
 function shuffle(list, rng) {
   const arr = [...list];
