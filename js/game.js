@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect } from "./map.js?v=35";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=35";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=35";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=35";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=35";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=35";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=36";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=36";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=36";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=36";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=36";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=36";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -103,11 +103,13 @@ function toast(text) {
 }
 
 function show(id) {
-  $(id).classList.remove("hidden");
+  const el = $(id);
+  if (el) el.classList.remove("hidden");
 }
 
 function hide(id) {
-  $(id).classList.add("hidden");
+  const el = $(id);
+  if (el) el.classList.add("hidden");
 }
 
 function syncAdmin() {
@@ -879,7 +881,7 @@ function syncTasks(list) {
     const prevCore = TASKS.filter((task) => prev.has(task.id)).length;
     if (prevCore < TASKS.length && coreDoneCount() >= TASKS.length) noteProgress();
     noteSky();
-    else if (added.length) {
+    if (added.length) {
       const task = findTask(added[added.length - 1]);
       if (task) toast(`${task.name} 미션 완료.`);
     }
@@ -1860,6 +1862,7 @@ function drawFacility(now, lamp) {
   if (annex) ctx.drawImage(annex.canvas, annex.x, annex.y);
   const sky = skyLayer();
   if (sky) ctx.drawImage(sky.canvas, sky.x, sky.y);
+  paintSkyLive(ctx);
   drawLever();
   drawGateSeal();
   for (const g of ground) {
@@ -2127,27 +2130,31 @@ function goMenu() {
   state.roomData = null;
 }
 
+function onClick(id, fn) {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener("click", fn);
+}
+
 function bind() {
-  initMinigames({ onPower: fixPower, onReactor: fixReactor, onGate: finishGate });
-  initMissions({ onDone: finishTask, onDownload: noteDownload, onSignal: clearSediment });
-  $("task-toggle").addEventListener("click", () => {
+  onClick("task-toggle", () => {
     $("task-list").classList.toggle("hidden");
     updateTaskbar();
   });
-  $("admin-tasks").addEventListener("click", () => {
+  onClick("admin-tasks", () => {
     if (!state.admin) return;
     state.adminTasks = !state.adminTasks;
     if (state.adminTasks) requestCompleteAll();
     else toast("이미 끝난 미션은 되돌리지 않는다.");
     paintAdminTools();
   });
-  $("admin-god").addEventListener("click", () => {
+  onClick("admin-god", () => {
     if (!state.admin) return;
     state.adminGod = !state.adminGod;
     toast(state.adminGod ? "무적이다." : "무적이 꺼졌다.");
     paintAdminTools();
   });
-  $("admin-fast").addEventListener("click", () => {
+  onClick("admin-fast", () => {
     if (!state.admin || inBossFight()) {
       toast("보스전에서는 속도를 쓸 수 없다.");
       return;
@@ -2163,12 +2170,12 @@ function bind() {
       state.difficulty = btn.dataset.diff;
     });
   }
-  $("btn-single").addEventListener("click", () => {
+  onClick("btn-single", () => {
     unlockAudio();
     state.name = ($("player-name").value || "탐색자").slice(0, 12);
     beginSingle();
   });
-  $("btn-multi").addEventListener("click", () => {
+  onClick("btn-multi", () => {
     unlockAudio();
     state.name = ($("player-name").value || "탐색자").slice(0, 12);
     if (!isFirebaseConfigured()) {
@@ -2180,17 +2187,17 @@ function bind() {
     show("multi-setup");
     $("multi-error").textContent = "";
   });
-  $("btn-manual").addEventListener("click", () => show("manual"));
-  $("manual-close").addEventListener("click", () => hide("manual"));
-  $("firebase-close").addEventListener("click", () => {
+  onClick("btn-manual", () => show("manual"));
+  onClick("manual-close", () => hide("manual"));
+  onClick("firebase-close", () => {
     hide("firebase-help");
     if (state.phase === "menu") show("menu");
   });
-  $("multi-back").addEventListener("click", () => {
+  onClick("multi-back", () => {
     hide("multi-setup");
     show("menu");
   });
-  $("btn-create").addEventListener("click", async () => {
+  onClick("btn-create", async () => {
     $("multi-error").textContent = "";
     try {
       state.color = colorOf(selfId() || state.name);
@@ -2204,7 +2211,7 @@ function bind() {
       $("multi-error").textContent = err.message || "방을 만들지 못했습니다.";
     }
   });
-  $("btn-join").addEventListener("click", async () => {
+  onClick("btn-join", async () => {
     $("multi-error").textContent = "";
     try {
       const data = await joinRoom({ code: $("room-code").value, name: state.name, color: "#d7c4a3" });
@@ -2220,29 +2227,36 @@ function bind() {
       $("multi-error").textContent = err.message || "참여하지 못했습니다.";
     }
   });
-  $("lobby-start").addEventListener("click", hostStart);
-  $("lobby-leave").addEventListener("click", goMenu);
-  $("resume").addEventListener("click", () => {
+  onClick("lobby-start", hostStart);
+  onClick("lobby-leave", goMenu);
+  onClick("resume", () => {
     state.paused = false;
     thawReactor();
     hide("pause");
   });
-  $("pause-menu").addEventListener("click", goMenu);
-  $("retry").addEventListener("click", () => {
+  onClick("pause-menu", goMenu);
+  onClick("retry", () => {
     hide("death");
     if (state.multi) goMenu();
     else beginSingle();
   });
-  $("death-menu").addEventListener("click", goMenu);
-  $("downed-menu").addEventListener("click", goMenu);
-  $("map-close").addEventListener("click", () => hide("map-overlay"));
-  $("cctv-close").addEventListener("click", () => hide("cctv-overlay"));
-  $("mute-btn").addEventListener("click", () => {
+  onClick("death-menu", goMenu);
+  onClick("downed-menu", goMenu);
+  onClick("map-close", () => hide("map-overlay"));
+  onClick("cctv-close", () => hide("cctv-overlay"));
+  onClick("mute-btn", () => {
     unlockAudio();
     setMuted(!isMuted());
     $("mute-btn").textContent = isMuted() ? "음소거" : "소리";
   });
-  $("hotbar").addEventListener("click", (e) => {
+  try {
+    initMinigames({ onPower: fixPower, onReactor: fixReactor, onGate: finishGate });
+    initMissions({ onDone: finishTask, onDownload: noteDownload, onSignal: clearSediment });
+  } catch (err) {
+    console.error(err);
+  }
+  const hotbar = $("hotbar");
+  if (hotbar) hotbar.addEventListener("click", (e) => {
     const slot = e.target.closest(".slot");
     if (!slot) return;
     selected = Number(slot.dataset.i);
@@ -2356,7 +2370,11 @@ function digit(code) {
   return 0;
 }
 
-bind();
+try {
+  bind();
+} catch (err) {
+  console.error(err);
+}
 resize();
 renderHotbar();
 requestAnimationFrame(loop);

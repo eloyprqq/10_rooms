@@ -130,7 +130,8 @@ export function initMissions(handlers) {
   onDone = handlers.onDone;
   onDownload = handlers.onDownload;
   onSignal = handlers.onSignal || (() => {});
-  $("mission-close").addEventListener("click", closeMission);
+  const closeBtn = $("mission-close");
+  if (closeBtn) closeBtn.addEventListener("click", closeMission);
 }
 
 export function missionOpen() {

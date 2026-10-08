@@ -217,7 +217,7 @@ const endlessHall = tagSky({
   kind: "rect",
   x: byId.trial.x + byId.trial.w,
   y: byId.trial.y + byId.trial.h / 2 - SKY_HALL / 2,
-  w: 7800,
+  w: 2400,
   h: SKY_HALL,
 });
 
@@ -256,6 +256,7 @@ export function corridorById(id) {
 
 export function corridorAnchor(id) {
   const c = corrById[id];
+  if (!c) return { x: 0, y: 0 };
   if (c.kind === "diag") return { x: (c.x1 + c.x2) / 2, y: (c.y1 + c.y2) / 2 };
   return { x: c.x + c.w / 2, y: c.y + c.h / 2 };
 }
@@ -272,6 +273,7 @@ export function adjacentCorridors(roomId) {
 
 export function neighborCorridors(corrId) {
   const c = corrById[corrId];
+  if (!c) return [];
   const out = [];
   const seen = new Set();
   for (const roomId of [c.a, c.b]) {
@@ -779,19 +781,25 @@ export function skyLayer() {
     grow(room.x + room.w + 8, room.y + room.h + 8);
   }
   for (const c of skyCorridors) {
-    if (c.kind === "diag") {
-      grow(Math.min(c.x1, c.x2) - 80, Math.min(c.y1, c.y2) - 80);
-      grow(Math.max(c.x1, c.x2) + 80, Math.max(c.y1, c.y2) + 80);
-    } else {
-      grow(c.x - 30, c.y - 30);
-      grow(c.x + c.w + 30, c.y + c.h + 30);
-    }
+    if (c.id === "endless" || c.kind === "diag") continue;
+    grow(c.x - 30, c.y - 30);
+    grow(c.x + c.w + 30, c.y + c.h + 30);
   }
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(maxX - minX);
   canvas.height = Math.ceil(maxY - minY);
   const ctx = canvas.getContext("2d");
   ctx.translate(-minX, -minY);
+  for (const c of skyCorridors) {
+    if (c.kind === "rect" && c.id !== "endless") paintHall(ctx, c);
+  }
+  for (const room of SKY) paintRoom(ctx, room);
+  skyCache = { canvas, x: minX, y: minY };
+  return skyCache;
+}
+
+export function paintSkyLive(ctx) {
+  if (!skyOpen) return;
   ctx.lineCap = "butt";
   ctx.strokeStyle = "#5a636e";
   ctx.lineWidth = CABLE.half * 2;
@@ -805,12 +813,7 @@ export function skyLayer() {
   ctx.moveTo(CABLE.x1, CABLE.y1);
   ctx.lineTo(CABLE.x2, CABLE.y2);
   ctx.stroke();
-  for (const c of skyCorridors) {
-    if (c.kind === "rect") paintHall(ctx, c);
-  }
-  for (const room of SKY) paintRoom(ctx, room);
-  skyCache = { canvas, x: minX, y: minY };
-  return skyCache;
+  paintHall(ctx, endlessHall);
 }
 
 function paintRoom(ctx, room) {
@@ -882,6 +885,7 @@ function worldFrame(mode) {
     grow(room.x + room.w, room.y + room.h);
   }
   for (const c of halls) {
+    if (c.id === "endless" || c.kind === "diag") continue;
     if (c.kind === "diag") {
       grow(Math.min(c.x1, c.x2), Math.min(c.y1, c.y2));
       grow(Math.max(c.x1, c.x2), Math.max(c.y1, c.y2));
@@ -896,8 +900,8 @@ function worldFrame(mode) {
 export function getFloorCanvas() {
   if (floorCache) return floorCache;
   const canvas = document.createElement("canvas");
-  canvas.width = WORLD.maxX + 40;
-  canvas.height = WORLD.maxY + 40;
+  canvas.width = WORLD0.maxX + 40;
+  canvas.height = WORLD0.maxY + 40;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#10141a";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -917,7 +921,8 @@ export function getFloorCanvas() {
   ctx.stroke();
 
   for (const c of CORRIDORS) {
-    if (c.kind === "rect") paintHall(ctx, c);
+    if (c.world || c.kind !== "rect") continue;
+    paintHall(ctx, c);
   }
 
   for (const room of ROOMS) {

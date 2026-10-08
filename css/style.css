@@ -67,6 +67,11 @@ button { cursor: pointer; }
   pointer-events: none;
 }
 
+#hud.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 #hud button, #hud .slot { pointer-events: auto; }
 
 .hidden { display: none !important; }
@@ -101,8 +106,13 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  z-index: 6;
+  z-index: 7;
   pointer-events: auto;
+}
+
+#admin-tools.hidden {
+  display: none !important;
+  pointer-events: none !important;
 }
 
 #admin-tools button {
@@ -252,6 +262,7 @@ button { cursor: pointer; }
   border-radius: 12px;
   background: #171b22;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
 }
 
 #net-pill, #mute-btn {
@@ -394,16 +405,20 @@ button { cursor: pointer; }
 .screen {
   position: fixed;
   inset: 0;
-  z-index: 6;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  pointer-events: auto;
 }
 
 .screen.dim { background: rgba(0, 0, 0, 0.78); }
 
-.screen.hidden { display: none; }
+.screen.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
 
 .panel {
   width: min(720px, 100%);

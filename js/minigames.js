@@ -33,9 +33,12 @@ export function initMinigames(handlers) {
   onPower = handlers.onPower;
   onReactor = handlers.onReactor;
   onGate = handlers.onGate || (() => {});
-  $("wire-close").addEventListener("click", closeMinigames);
-  $("card-close").addEventListener("click", closeMinigames);
+  const wireClose = $("wire-close");
+  if (wireClose) wireClose.addEventListener("click", closeMinigames);
+  const cardClose = $("card-close");
+  if (cardClose) cardClose.addEventListener("click", closeMinigames);
   const card = $("swipe-card");
+  if (!card) return;
   card.addEventListener("pointerdown", (e) => {
     if (!cardOpen) return;
     dragging = true;
