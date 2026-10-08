@@ -217,7 +217,7 @@ const endlessHall = tagSky({
   kind: "rect",
   x: byId.trial.x + byId.trial.w,
   y: byId.trial.y + byId.trial.h / 2 - 120,
-  w: 2400,
+  w: 3200,
   h: 240,
 });
 

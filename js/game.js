@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=38";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=38";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=38";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=38";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=38";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=38";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=40";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=40";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=40";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=40";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=40";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=40";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -79,6 +79,7 @@ const player = { x: 950, y: 478, facing: 0, hp: 100, alive: true, r: 12 };
 const cam = { x: 400, y: 200 };
 const keys = new Set();
 let pointer = false;
+const mouse = { x: 0, y: 0 };
 let selected = 0;
 let inv = [];
 let ground = [];
@@ -667,9 +668,11 @@ function resetRun(difficulty) {
   state.bossFight = false;
   state.eye = null;
   state.eyeScene = null;
-  state.eyeHazards = [];
-  state.eyeShots = [];
   state.eyeHitAt = 0;
+  state.chaseBlocks = [];
+  state.eyeParts = [];
+  state.cannon = null;
+  state.eyeBall = null;
   closeMinigames();
   closeMission();
   hide("map-overlay");
@@ -1074,6 +1077,7 @@ function interact() {
     swipeGate();
     return;
   }
+  if (tryCannonUse()) return;
   if (takeGround(nearestGround())) return;
   if (loc.kind === "room") {
     const c = roomCenter(loc.id);
@@ -1328,7 +1332,8 @@ function movePlayer(dt) {
   const len = Math.hypot(x, y);
   const boost = performance.now() < state.boostUntil ? 1.5 : 1;
   const cheat = state.admin && state.adminFast && !inBossFight() ? 2 : 1;
-  const speed = (state.phase === "lobby" ? 240 : 230) * boost * cheat;
+  const chase = inChase() ? 1.5 : 1;
+  const speed = (state.phase === "lobby" ? 240 : 230) * boost * cheat * chase;
   let dx = 0;
   let dy = 0;
   if (len) {
@@ -1336,7 +1341,6 @@ function movePlayer(dt) {
     dy = (y / len) * speed * dt;
     player.facing = Math.atan2(y, x);
   }
-  if (state.bossFight && locate(player.x, player.y).id === "endless") dx -= 70 * dt;
   if (!dx && !dy) return;
   if (isGhost()) {
     player.x = Math.max(WORLD.minX, Math.min(WORLD.maxX, player.x + dx));
@@ -1346,7 +1350,7 @@ function movePlayer(dt) {
   const walk = state.phase === "lobby" ? lobbyWalk : isWalkable;
   const nx = player.x + dx;
   const ny = player.y + dy;
-  const blocked = (x, y) => state.phase === "play" && crossesGate(x, y) && !gateOpenNow();
+  const blocked = (x, y) => (state.phase === "play" && crossesGate(x, y) && !gateOpenNow()) || chaseBlocked(x, y);
   if (walk(nx, player.y) && !blocked(nx, player.y)) player.x = nx;
   if (walk(player.x, ny) && !blocked(player.x, ny)) player.y = ny;
 }
@@ -1428,6 +1432,9 @@ function promptText() {
   if (nearLever()) return sim.reactorHalted ? "레버는 내려가 있다" : "E  레버를 내리다";
   const gateLine = gatePrompt();
   const loc = locate(player.x, player.y);
+  if (state.bossFight && !state.eye?.caught && (loc.id === "trial" || loc.id === "endless")) {
+    return chasePrompt();
+  }
   if (loc.kind !== "room") return gateLine || groundPrompt();
   const c = roomCenter(loc.id);
   const near = Math.hypot(player.x - c.x, player.y - c.y) < 200;
@@ -1445,7 +1452,7 @@ function promptText() {
   }
   if (loc.id === "trial") {
     if (state.eye?.caught) return "눈을 잡았다";
-    if (state.bossFight) return "위아래로 피하면서 눈을 쫓아라";
+    if (state.bossFight) return chasePrompt();
     return "먼저 괴물개방에서 눈을 놓아라";
   }
   const actions = actionsFor(loc.id, missionProgress());
@@ -1571,15 +1578,20 @@ function startBoss() {
     toast("이미 놓아 주었다.");
     return;
   }
-  const hall = endlessRect();
   state.bossFight = true;
   state.eyeScene = null;
-  state.eyeHazards = [];
-  state.eyeShots = [];
   state.eyeHitAt = 0;
-  state.eye = { x: hall.x + hall.w - 160, y: hall.y + hall.h / 2, vx: 0, caught: false, shotAt: 0 };
-  toast("도전로로 들어가라. 눈이 기다린다.");
+  state.chaseBlocks = [];
+  state.eyeParts = [];
+  state.cannon = null;
+  state.eyeBall = null;
+  state.eye = { x: 0, y: 0, caught: false, spawned: false };
+  toast("도전로로 들어가라. 눈이 뒤에서 쫓아온다.");
   paintAdminTools();
+}
+
+function inChase() {
+  return !!(state.bossFight && state.eye?.spawned && !state.eye?.caught);
 }
 
 function eyeSceneHold() {
@@ -1587,42 +1599,160 @@ function eyeSceneHold() {
   return !!(s && s.t < s.dur);
 }
 
-function buildEyeHazards() {
+function cannonSpot() {
+  const hall = endlessRect();
+  return { x: hall.x + hall.w - 120, y: hall.y + hall.h / 2 };
+}
+
+function nearCannon() {
+  const c = state.cannon;
+  if (!c) return false;
+  return Math.hypot(player.x - c.x, player.y - c.y) < 92;
+}
+
+function partsHeld() {
+  return (state.eyeParts || []).filter((p) => p.got).length;
+}
+
+function chasePrompt() {
+  if (state.eye?.caught) return "눈을 잡았다";
+  if (!state.eye?.spawned) return "눈이 온다";
+  const n = partsHeld();
+  if (state.cannon?.assembled) {
+    if (nearCannon()) return state.eyeBall ? "포탄이 날아간다" : "마우스 조준 · 클릭/E 발사";
+    return "대포로 달려가라";
+  }
+  if (n >= 3 && nearCannon()) return "E  대포를 조립하다";
+  if (n >= 3) return "끝의 대포로 가라";
+  return `부품 ${n}/3 · 눈을 피해 달려라`;
+}
+
+function chaseBlocked(x, y) {
+  if (!state.bossFight || state.eye?.caught) return false;
+  for (const o of state.chaseBlocks || []) {
+    if (x > o.x && x < o.x + o.w && y > o.y && y < o.y + o.h) return true;
+  }
+  return false;
+}
+
+function buildChaseCourse() {
   const hall = endlessRect();
   const y0 = hall.y;
   const h = hall.h;
-  const lids = (xs, gapShut, period, shut, phaseStep) => xs.map((ox, i) => ({
-    kind: "lid",
-    x: hall.x + ox,
-    w: 72,
-    y: y0,
-    h,
-    gapShut,
-    period,
-    shut,
-    phase: i * phaseStep,
-  }));
-  state.eyeHazards = [
-    ...lids([280, 500, 720], 92, 1.45, 0.3, 0.48),
-    ...lids([980, 1180, 1380], 64, 1.05, 0.34, 0.33),
-    { kind: "beam", x: hall.x + 1540, y: y0 + 28, w: 150, h: 36, period: 1.2, on: 0.34, phase: 0 },
-    { kind: "beam", x: hall.x + 1720, y: y0 + h - 64, w: 150, h: 36, period: 1.2, on: 0.34, phase: 0.55 },
-    { kind: "beam", x: hall.x + 1900, y: y0 + h / 2 - 18, w: 130, h: 36, period: 0.95, on: 0.28, phase: 0.2 },
-    { kind: "blink", x: hall.x + 1080, w: 420, y: y0, h },
+  const top = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 86, h: 88 });
+  const bot = (ox) => ({ x: hall.x + ox, y: y0 + h - 96, w: 86, h: 88 });
+  state.chaseBlocks = [top(420), bot(780), top(1180), bot(1580), top(1980), bot(2380)];
+  const mid = y0 + h / 2;
+  state.eyeParts = [
+    { id: "barrel", name: "포신", x: hall.x + 560, y: mid + 52, got: false },
+    { id: "mount", name: "포대", x: hall.x + 1360, y: mid - 52, got: false },
+    { id: "shell", name: "포탄", x: hall.x + 2160, y: mid + 52, got: false },
   ];
+  const pad = cannonSpot();
+  state.cannon = { x: pad.x, y: pad.y, assembled: false, angle: Math.PI, ammo: 3, cool: 0 };
+  state.eyeBall = null;
 }
 
-function lidGap(h, now) {
-  const t = (now / 1000 + h.phase) % h.period;
-  const shut = t < h.shut;
-  const mid = h.y + h.h / 2;
-  const gap = shut ? h.gapShut : h.h - 36;
-  return { shut, y: mid - gap / 2, h: gap };
+function spawnEyeBehind() {
+  const e = state.eye;
+  if (!e || e.spawned || e.caught) return;
+  buildChaseCourse();
+  let x = player.x - 240;
+  let y = player.y;
+  if (!isWalkable(x, y) || chaseBlocked(x, y)) {
+    const hall = endlessRect();
+    x = player.x - 240;
+    y = hall.y + hall.h / 2;
+  }
+  e.x = x;
+  e.y = y;
+  e.spawned = true;
+  toast("눈이 뒤에서 쫓아온다. 대포 부품을 모아라.");
 }
 
-function beamOn(h, now) {
-  const t = (now / 1000 + h.phase) % h.period;
-  return t < h.on;
+function takeChasePart() {
+  let got = false;
+  for (const p of state.eyeParts || []) {
+    if (p.got) continue;
+    if (Math.hypot(player.x - p.x, player.y - p.y) > 70) continue;
+    p.got = true;
+    got = true;
+    playPickup();
+    toast(`${p.name}을 집었다. ${partsHeld()}/3`);
+  }
+  return got;
+}
+
+function catchEye() {
+  const e = state.eye;
+  if (!e || e.caught) return;
+  e.caught = true;
+  e.spawned = false;
+  state.bossFight = false;
+  state.eyeBall = null;
+  toast("대포가 눈을 맞혔다.");
+  paintAdminTools();
+}
+
+function fireCannon() {
+  const c = state.cannon;
+  if (!c?.assembled || state.eyeBall) return false;
+  if (!nearCannon()) return false;
+  if (c.ammo <= 0) {
+    toast("포탄이 없다.");
+    return true;
+  }
+  if (c.cool > 0) return true;
+  c.ammo -= 1;
+  c.cool = 1.2;
+  const a = c.angle;
+  state.eyeBall = { x: c.x + Math.cos(a) * 48, y: c.y + Math.sin(a) * 48, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, life: 1.4 };
+  toast("발사.");
+  return true;
+}
+
+function tryCannonUse() {
+  if (!state.bossFight || state.eye?.caught || !state.eye?.spawned) return false;
+  takeChasePart();
+  const c = state.cannon;
+  if (!c || !nearCannon()) return false;
+  if (!c.assembled) {
+    if (partsHeld() < 3) {
+      toast(`부품이 더 필요하다. ${partsHeld()}/3`);
+      return true;
+    }
+    c.assembled = true;
+    c.ammo = 3;
+    toast("대포를 조립했다. 조준해서 쏴라.");
+    return true;
+  }
+  return fireCannon();
+}
+
+function tickCannon(dt) {
+  const c = state.cannon;
+  if (!c) return;
+  if (c.cool > 0) c.cool -= dt;
+  if (c.assembled && nearCannon()) {
+    const wx = mouse.x + cam.x;
+    const wy = mouse.y + cam.y;
+    c.angle = Math.atan2(wy - c.y, wx - c.x);
+  }
+  const ball = state.eyeBall;
+  const e = state.eye;
+  if (!ball) return;
+  ball.x += ball.vx * dt;
+  ball.y += ball.vy * dt;
+  ball.life -= dt;
+  if (e?.spawned && Math.hypot(ball.x - e.x, ball.y - e.y) < 48) {
+    state.eyeBall = null;
+    catchEye();
+    return;
+  }
+  if (ball.life <= 0) {
+    state.eyeBall = null;
+    toast(c.ammo > 0 ? "빗나갔다. 다시 쏴라." : "빗나갔다.");
+  }
 }
 
 function tickEyeScene(dt) {
@@ -1630,39 +1760,28 @@ function tickEyeScene(dt) {
   const loc = locate(player.x, player.y);
   if (!state.eyeScene && (loc.id === "trial" || loc.id === "endless")) {
     state.eyeScene = { t: 0, dur: 2.2 };
-    buildEyeHazards();
   }
   if (!state.eyeScene) return;
+  const before = state.eyeScene.t;
   state.eyeScene.t += dt;
+  if (before < state.eyeScene.dur && state.eyeScene.t >= state.eyeScene.dur) spawnEyeBehind();
 }
 
 function tickEye(dt) {
   if (eyeSceneHold()) return;
-  if (!state.bossFight || !state.eye) return;
-  const hall = endlessRect();
+  if (!state.bossFight || !state.eye || state.eye.caught || !state.eye.spawned) return;
+  takeChasePart();
+  tickCannon(dt);
   const e = state.eye;
-  const now = performance.now();
-  e.y = hall.y + hall.h / 2 + Math.sin(now / 280) * 40;
-  const loc = locate(player.x, player.y);
-  if (loc.id === "endless" && now - (e.shotAt || 0) > 2100) {
-    e.shotAt = now;
-    const lane = player.y < hall.y + hall.h / 2 ? hall.y + 58 : hall.y + hall.h - 58;
-    state.eyeShots.push({ x: e.x - 40, y: lane, vx: -420, r: 22 });
+  const dx = player.x - e.x;
+  const dy = player.y - e.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const step = 312 * dt;
+  if (dist > 40) {
+    e.x += (dx / dist) * step;
+    e.y += (dy / dist) * step;
   }
-  state.eyeShots = (state.eyeShots || []).filter((s) => {
-    s.x += s.vx * dt;
-    return s.x > hall.x - 40;
-  });
-  tickEyeHit(now);
-  if (!player.alive) return;
-  if (Math.hypot(player.x - e.x, player.y - e.y) < 58) {
-    state.bossFight = false;
-    e.caught = true;
-    state.eyeHazards = [];
-    state.eyeShots = [];
-    toast("눈을 잡았다.");
-    paintAdminTools();
-  }
+  tickEyeHit(performance.now());
 }
 
 function tickEyeHit(now) {
@@ -1671,68 +1790,69 @@ function tickEyeHit(now) {
   if (now - (state.eyeHitAt || 0) < 750) return;
   const loc = locate(player.x, player.y);
   if (loc.id !== "endless" && loc.id !== "trial") return;
-  const r = 14;
-  for (const h of state.eyeHazards || []) {
-    if (h.kind === "lid") {
-      const g = lidGap(h, now);
-      const inX = player.x > h.x && player.x < h.x + h.w;
-      const inGap = player.y > g.y + r && player.y < g.y + g.h - r;
-      if (inX && !inGap) {
-        state.eyeHitAt = now;
-        hurt(32, "eye");
-        toast("눈이 감겼다.");
-        return;
-      }
-    }
-    if (h.kind === "beam" && beamOn(h, now)) {
-      if (player.x > h.x && player.x < h.x + h.w && player.y > h.y && player.y < h.y + h.h) {
-        state.eyeHitAt = now;
-        hurt(32, "eye");
-        toast("레이저.");
-        return;
-      }
-    }
-  }
-  for (const s of state.eyeShots || []) {
-    if (Math.hypot(player.x - s.x, player.y - s.y) < s.r + r) {
-      state.eyeHitAt = now;
-      hurt(32, "eye");
-      toast("눈을 피하라.");
-      return;
-    }
+  const e = state.eye;
+  if (e?.spawned && Math.hypot(player.x - e.x, player.y - e.y) < 42) {
+    state.eyeHitAt = now;
+    hurt(34, "eye");
+    toast("눈이 덮쳤다.");
   }
 }
 
-function drawEyeHazards(now) {
+function drawEyeCombat() {
   if (!state.bossFight || state.eye?.caught) return;
-  for (const h of state.eyeHazards || []) {
-    if (h.kind === "lid") {
-      const g = lidGap(h, now);
-      ctx.fillStyle = g.shut ? "rgba(225, 29, 46, 0.82)" : "rgba(225, 29, 46, 0.22)";
-      ctx.beginPath();
-      ctx.ellipse(h.x + h.w / 2, h.y + h.h / 2, h.w * 0.85, h.h / 2 - 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#140308";
-      ctx.fillRect(h.x, h.y, h.w, Math.max(0, g.y - h.y));
-      ctx.fillRect(h.x, g.y + g.h, h.w, Math.max(0, h.y + h.h - (g.y + g.h)));
-      ctx.fillStyle = "#e11d2e";
-      ctx.beginPath();
-      ctx.arc(h.x + h.w / 2, h.y + h.h / 2, 11, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (h.kind === "beam" && beamOn(h, now)) {
-      ctx.fillStyle = "rgba(225, 40, 48, 0.8)";
-      ctx.fillRect(h.x, h.y, h.w, h.h);
+  for (const o of state.chaseBlocks || []) {
+    ctx.fillStyle = "#2a2420";
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.strokeStyle = "#5a4a3a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(o.x + 1, o.y + 1, o.w - 2, o.h - 2);
+  }
+  for (const p of state.eyeParts || []) {
+    if (p.got) continue;
+    ctx.fillStyle = "#c4a15a";
+    ctx.fillRect(p.x - 16, p.y - 16, 32, 32);
+    ctx.fillStyle = "#f4efe4";
+    ctx.font = '14px "IBM Plex Sans KR", sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillText(p.name, p.x, p.y - 22);
+  }
+  const c = state.cannon;
+  if (c) {
+    ctx.fillStyle = c.assembled ? "#3a3530" : "#1c1a18";
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 36, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#8a7a62";
+    ctx.fillRect(c.x - 28, c.y + 10, 56, 18);
+    if (c.assembled) {
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.angle);
+      ctx.fillStyle = "#6a6258";
+      ctx.fillRect(8, -10, 58, 20);
+      ctx.fillStyle = "#2a2622";
+      ctx.fillRect(58, -7, 16, 14);
+      ctx.restore();
+      if (nearCannon()) {
+        ctx.strokeStyle = "rgba(225, 29, 46, 0.45)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(c.x, c.y);
+        ctx.lineTo(c.x + Math.cos(c.angle) * 220, c.y + Math.sin(c.angle) * 220);
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = "#9a8a70";
+      ctx.font = '13px "IBM Plex Sans KR", sans-serif';
+      ctx.textAlign = "center";
+      ctx.fillText("대포", c.x, c.y - 44);
     }
   }
-  for (const s of state.eyeShots || []) {
-    ctx.fillStyle = "#e8eaee";
+  const ball = state.eyeBall;
+  if (ball) {
+    ctx.fillStyle = "#d8c48a";
     ctx.beginPath();
-    ctx.ellipse(s.x, s.y, 26, 16, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#e11d2e";
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, 9, 0, Math.PI * 2);
+    ctx.arc(ball.x, ball.y, 14, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -1778,38 +1898,28 @@ function drawEyeScene() {
 
 function drawEye() {
   const e = state.eye;
-  if (!e || e.caught) return;
+  if (!e || e.caught || !e.spawned) return;
   const x = e.x - cam.x;
   const y = e.y - cam.y;
   ctx.save();
   ctx.translate(x, y);
   ctx.fillStyle = "#d8dbe0";
   ctx.beginPath();
-  ctx.arc(0, 0, 34, 0, Math.PI * 2);
+  ctx.arc(0, 0, 42, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#e11d2e";
   ctx.beginPath();
-  ctx.arc(0, 0, 18, 0, Math.PI * 2);
+  ctx.arc(0, 0, 22, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#4a0408";
   ctx.beginPath();
-  ctx.arc(0, 0, 8, 0, Math.PI * 2);
+  ctx.arc(0, 0, 10, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.beginPath();
   ctx.arc(8, -8, 6, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
-}
-
-function drawEyeBlink(now) {
-  if (!state.bossFight || state.eye?.caught || eyeSceneHold()) return;
-  const zone = (state.eyeHazards || []).find((h) => h.kind === "blink");
-  if (!zone) return;
-  if (player.x < zone.x || player.x > zone.x + zone.w) return;
-  if (Math.sin(now / 95) < 0.28) return;
-  ctx.fillStyle = "rgba(0,0,0,0.72)";
-  ctx.fillRect(0, 0, viewW, viewH);
 }
 
 function tickChoke(dt) {
@@ -2060,7 +2170,7 @@ function drawFacility(now, lamp) {
   const sky = skyLayer();
   if (sky) ctx.drawImage(sky.canvas, sky.x, sky.y);
   paintSkyLive(ctx);
-  drawEyeHazards(now);
+  drawEyeCombat();
   drawLever();
   drawGateSeal();
   for (const g of ground) {
@@ -2091,7 +2201,6 @@ function drawFacility(now, lamp) {
   drawShieldLights(now);
   drawPings();
   drawEye();
-  drawEyeBlink(now);
   drawEyeScene();
   for (const m of sim.monsters) {
     const g = ghosts.get(m.id) || anchorOf(m.place);
@@ -2471,6 +2580,7 @@ function bind() {
     if (e.button !== 0) return;
     if (e.target.closest && e.target.closest("button, input, a, .panel")) return;
     pointer = true;
+    if (state.cannon?.assembled && nearCannon() && fireCannon()) return;
     const item = inv[selected];
     if (item && item.type !== "flashlight" && state.phase === "play") useSelected();
   });
@@ -2488,6 +2598,10 @@ function bind() {
     renderHotbar();
   }, { passive: true });
   window.addEventListener("pointerdown", () => unlockAudio());
+  window.addEventListener("mousemove", (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
 }
 
 function colorOf(seed) {
