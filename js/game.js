@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=45";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=45";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=45";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=45";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=45";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=45";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=46";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=46";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=46";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=46";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=46";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=46";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -53,7 +53,7 @@ const state = {
   supplyCd: {},
   cctvReadyAt: 0,
   cctvItem: null,
-  seen: { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0, sediment: 0, gate: 0, cell: 0, sedimentFix: 0 },
+  seen: { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0, sediment: 0, gate: 0, cell: 0, sedimentFix: 0, adminHalt: 0, adminPower: 0 },
   taskSig: null,
   roomData: null,
   lastPush: 0,
@@ -147,6 +147,18 @@ function paintAdminTools() {
     fast.disabled = blocked;
     fast.classList.toggle("on", !!state.adminFast && !blocked);
     fast.textContent = blocked ? "속도 보스" : state.adminFast ? "속도 on" : "속도 off";
+  }
+  const reactor = $("admin-reactor");
+  const power = $("admin-power");
+  if (reactor) {
+    const on = !!sim?.reactorHalted;
+    reactor.classList.toggle("on", on);
+    reactor.textContent = on ? "원자로 정지" : "원자로 off";
+  }
+  if (power) {
+    const on = !!sim?.powerStopped;
+    power.classList.toggle("on", on);
+    power.textContent = on ? "전기 정지" : "전기 off";
   }
 }
 
@@ -398,6 +410,7 @@ function publish() {
     worldOpen: !!sim.worldOpen,
     skyOpen: !!sim.skyOpen,
     reactorHalted: !!sim.reactorHalted,
+    powerStopped: !!sim.powerStopped,
     powerHoldUntil: sim.powerHoldUntil || 0,
     sediment: sim.sediment && sim.sediment.start ? { start: sim.sediment.start, until: sim.sediment.until || sim.sediment.start + 10 } : { start: 0 },
     gateOpenUntil: sim.gateOpenUntil || 0,
@@ -583,10 +596,21 @@ function applyFacility(world) {
   if (world.skyOpen && revealSky() && state.phase === "play" && !amHost()) {
     toast("옥상 위에 케이블카가 내려왔다.");
   }
-  if (world.reactorHalted && !sim.reactorHalted) {
-    sim.reactorHalted = true;
-    sim.reactor = null;
-    if (state.phase === "play") toast("원자로 가동이 멈췄다. 이제는 폭파하지 않는다.");
+  if (typeof world.reactorHalted === "boolean" && world.reactorHalted !== !!sim.reactorHalted) {
+    sim.reactorHalted = world.reactorHalted;
+    if (world.reactorHalted) sim.reactor = null;
+    if (state.phase === "play") toast(world.reactorHalted ? "원자로 가동이 멈췄다. 이제는 폭파하지 않는다." : "원자로가 다시 돌아간다.");
+  }
+  if (typeof world.powerStopped === "boolean" && world.powerStopped !== !!sim.powerStopped) {
+    sim.powerStopped = world.powerStopped;
+    if (world.powerStopped) sim.power = false;
+    else sim.power = true;
+    if (state.phase === "play") {
+      if (world.powerStopped) {
+        toast("전기가 꺼졌다.");
+        playBlackout();
+      } else toast("전기가 돌아왔다.");
+    }
   }
   if ((world.powerHoldUntil || 0) > (sim.powerHoldUntil || 0)) sim.powerHoldUntil = world.powerHoldUntil;
   if (world.sediment && world.sediment.start) {
@@ -602,11 +626,33 @@ function applyFacility(world) {
   if ((world.gateCardAt || 0) > (sim.gateCardAt || 0)) sim.gateCardAt = world.gateCardAt;
 }
 
+function applyReactorStop(on) {
+  if (!sim) return;
+  sim.reactorHalted = !!on;
+  if (on) sim.reactor = null;
+  toast(on ? "원자로 가동이 멈췄다. 이제는 폭파하지 않는다." : "원자로가 다시 돌아간다.");
+  paintAdminTools();
+  if (state.multi && amHost()) publish();
+}
+
+function applyPowerStop(on) {
+  if (!sim) return;
+  sim.powerStopped = !!on;
+  sim.power = !on;
+  if (on) {
+    toast("전기가 꺼졌다.");
+    playBlackout();
+  } else toast("전기가 돌아왔다.");
+  paintAdminTools();
+  if (state.multi && amHost()) publish();
+}
+
 function haltReactor() {
   if (!sim || sim.reactorHalted) return;
   sim.reactorHalted = true;
   sim.reactor = null;
   toast("원자로 가동이 멈췄다. 이제는 폭파하지 않는다.");
+  paintAdminTools();
   if (state.multi && amHost()) publish();
 }
 
@@ -700,7 +746,7 @@ function resetRun(difficulty) {
   state.applied = 1;
   state.synced = false;
   state.boostUntil = 0;
-  state.seen = { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0, sediment: 0, gate: 0, cell: 0, sedimentFix: 0 };
+  state.seen = { blackout: 0, reactor: 0, scatter: 0, power: 0, reactorFix: 0, revive: 0, task: 0, lever: 0, sediment: 0, gate: 0, cell: 0, sedimentFix: 0, adminHalt: 0, adminPower: 0 };
   state.gateStay = 0;
   state.lampOn = false;
   state.ping = null;
@@ -809,6 +855,10 @@ function tickTime(dt) {
 
 function fixPower() {
   if (!sim) return;
+  if (sim.powerStopped) {
+    toast("전기는 멈춰 있다.");
+    return;
+  }
   sim.power = true;
   toast("전력이 돌아왔다.");
   if (state.multi) {
@@ -1242,7 +1292,7 @@ function onRoom(data) {
       }
       if (data.powerFixAt && data.powerFixAt !== state.seen.power) {
         state.seen.power = data.powerFixAt;
-        sim.power = true;
+        if (!sim.powerStopped) sim.power = true;
         publish();
       }
       if (data.reactorFixAt && data.reactorFixAt !== state.seen.reactorFix) {
@@ -1269,6 +1319,14 @@ function onRoom(data) {
         if ((data.gateCardAt || 0) > (sim.gateCardAt || 0)) sim.gateCardAt = data.gateCardAt;
         if (data.gateOk && (data.gateOpenUntil || 0) > (sim.gateOpenUntil || 0)) sim.gateOpenUntil = data.gateOpenUntil;
         publish();
+      }
+      if (data.adminHaltAt && data.adminHaltAt !== state.seen.adminHalt) {
+        state.seen.adminHalt = data.adminHaltAt;
+        applyReactorStop(!!data.adminHalt);
+      }
+      if (data.adminPowerAt && data.adminPowerAt !== state.seen.adminPower) {
+        state.seen.adminPower = data.adminPowerAt;
+        applyPowerStop(!!data.adminPowerOff);
       }
       if (data.taskAt && data.taskAt !== state.seen.task && data.taskRoom) {
         state.seen.task = data.taskAt;
@@ -2929,6 +2987,34 @@ function bind() {
     state.adminFast = !state.adminFast;
     toast(state.adminFast ? "속도 200%." : "속도가 원래대로다.");
     paintAdminTools();
+  });
+  onClick("admin-reactor", () => {
+    if (!state.admin) return;
+    if (!sim) {
+      toast("플레이 중에만 된다.");
+      return;
+    }
+    const next = !sim.reactorHalted;
+    if (state.multi && !amHost()) {
+      signal({ adminHaltAt: Date.now(), adminHalt: next });
+      toast(next ? "원자로 정지를 요청했다." : "원자로 재개를 요청했다.");
+      return;
+    }
+    applyReactorStop(next);
+  });
+  onClick("admin-power", () => {
+    if (!state.admin) return;
+    if (!sim) {
+      toast("플레이 중에만 된다.");
+      return;
+    }
+    const next = !sim.powerStopped;
+    if (state.multi && !amHost()) {
+      signal({ adminPowerAt: Date.now(), adminPowerOff: next });
+      toast(next ? "전기 정지를 요청했다." : "전기 복구를 요청했다.");
+      return;
+    }
+    applyPowerStop(next);
   });
   for (const btn of document.querySelectorAll(".diff")) {
     btn.addEventListener("click", () => {

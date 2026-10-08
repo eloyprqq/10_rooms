@@ -7,7 +7,7 @@ import {
   neighborCorridors,
   nearestCorridor,
   roomById,
-} from "./map.js?v=45";
+} from "./map.js?v=46";
 
 function shuffle(list, rng) {
   const arr = [...list];
@@ -203,6 +203,7 @@ export function createMatch(difficulty, rng = Math.random) {
     reactor: null,
     meltdown: false,
     reactorHalted: false,
+    powerStopped: false,
     worldOpen: false,
     skyOpen: false,
     annexSpawned: false,
@@ -240,7 +241,8 @@ export function advance(state, delta, bodies, rng = Math.random, now = Date.now(
   const next = state.time + delta;
   for (let t = state.time + 1; t <= next; t++) {
     const hits = [];
-    if (t % 17 === 0 && !(state.powerHoldUntil && t <= state.powerHoldUntil)) state.power = false;
+    if (state.powerStopped) state.power = false;
+    else if (t % 17 === 0 && !(state.powerHoldUntil && t <= state.powerHoldUntil)) state.power = false;
     if (state.sediment && t >= state.sediment.until) state.sediment = null;
     if (t % 50 === 0 && state.worldOpen && !state.sediment) state.sediment = { start: t, until: t + 10 };
     if (t % 13 === 0 && !state.reactor && !state.meltdown && !state.reactorHalted) {
