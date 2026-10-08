@@ -182,12 +182,12 @@ function skyRoom(id, name, x, y, dress, floor) {
 }
 
 export const SKY = [
-  skyRoom("skywatch", "관측대", 4800, -840, "console", "#6a7c8a"),
-  skyRoom("skysupply", "보급소", 5960, -840, "crate", "#8a7356"),
-  skyRoom("skyarm", "무기고", 5960, -1820, "crate", "#8a7a62"),
-  skyRoom("escape", "탈출실", 5960, -2800, "console", "#6d7a68"),
-  skyRoom("release", "괴물개방", 4800, -3780, "tank", "#8a5c56"),
-  skyRoom("trial", "도전로", 5960, -3780, "pipe", "#7a6a58"),
+  skyRoom("skywatch", "관측대", 7800, -2200, "console", "#6a7c8a"),
+  skyRoom("skysupply", "보급소", 8960, -2200, "crate", "#8a7356"),
+  skyRoom("skyarm", "무기고", 8960, -3180, "crate", "#8a7a62"),
+  skyRoom("escape", "탈출실", 8960, -4160, "console", "#6d7a68"),
+  skyRoom("release", "괴물개방", 7800, -5140, "tank", "#8a5c56"),
+  skyRoom("trial", "도전로", 8960, -5140, "pipe", "#7a6a58"),
 ];
 
 for (const room of SKY) byId[room.id] = room;
@@ -206,7 +206,7 @@ const CABLE = tagSky({
   y1: roof.y + 48,
   x2: byId.skywatch.x + 48,
   y2: byId.skywatch.y + byId.skywatch.h - 48,
-  half: 72,
+  half: 92,
 });
 
 const SKY_HALL = 180;
@@ -703,6 +703,10 @@ export function endlessRect() {
   return endlessHall;
 }
 
+export function cableLine() {
+  return CABLE;
+}
+
 export function openSky() {
   if (skyOpen) return;
   skyOpen = true;
@@ -715,7 +719,7 @@ export function openSky() {
     WORLD.maxX = Math.max(WORLD.maxX, room.x + room.w + 80);
   }
   WORLD.maxX = Math.max(WORLD.maxX, endlessHall.x + endlessHall.w + 80);
-  WORLD.minY = Math.min(WORLD.minY, endlessHall.y - 80);
+  WORLD.minY = Math.min(WORLD.minY, endlessHall.y - 80, CABLE.y2 - 80, CABLE.y1 - 80);
   floorCache = null;
   skyCache = null;
 }

@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=40";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=40";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=40";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=40";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=40";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=40";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=41";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=41";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=41";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=41";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=41";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=41";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -673,6 +673,9 @@ function resetRun(difficulty) {
   state.eyeParts = [];
   state.cannon = null;
   state.eyeBall = null;
+  state.cableRide = null;
+  state.wallEyes = [];
+  state.hazHitAt = 0;
   closeMinigames();
   closeMission();
   hide("map-overlay");
@@ -1323,6 +1326,7 @@ function movePlayer(dt) {
   if (!player.alive && !isGhost()) return;
   if ($("map-overlay").classList.contains("hidden") === false) return;
   if (!$("cctv-overlay").classList.contains("hidden")) return;
+  if (tickCableRide(dt)) return;
   let x = 0;
   let y = 0;
   if (keys.has("KeyW") || keys.has("ArrowUp")) y -= 1;
@@ -1357,6 +1361,216 @@ function movePlayer(dt) {
 
 function lobbyWalk(x, y) {
   return x > LOBBY.x + 28 && y > LOBBY.y + 28 && x < LOBBY.x + LOBBY.w - 28 && y < LOBBY.y + LOBBY.h - 28;
+}
+
+function cableVec() {
+  const c = cableLine();
+  const dx = c.x2 - c.x1;
+  const dy = c.y2 - c.y1;
+  const len = Math.hypot(dx, dy) || 1;
+  return { c, len, ux: dx / len, uy: dy / len, px: -dy / len, py: dx / len };
+}
+
+function cablePoint(along, side) {
+  const v = cableVec();
+  return {
+    x: v.c.x1 + v.ux * along + v.px * side,
+    y: v.c.y1 + v.uy * along + v.py * side,
+  };
+}
+
+function startCableRide() {
+  if (state.cableRide?.active) return;
+  const v = cableVec();
+  const info = diagInfo(player.x, player.y, v.c);
+  const along = info.t * v.len;
+  state.cableRide = {
+    active: true,
+    along,
+    side: (info.x - (v.c.x1 + v.ux * along)) * v.px + (info.y - (v.c.y1 + v.uy * along)) * v.py,
+    dir: along < v.len * 0.5 ? 1 : -1,
+  };
+  toast(state.cableRide.dir > 0 ? "케이블카가 올라간다." : "케이블카가 내려간다.");
+}
+
+function tickCableRide(dt) {
+  if (!skyIsOpen() || isGhost() || !player.alive) {
+    if (state.cableRide) state.cableRide = null;
+    return false;
+  }
+  const loc = locate(player.x, player.y);
+  if (!state.cableRide?.active) {
+    if (loc.id !== "cable") return false;
+    startCableRide();
+  }
+  const ride = state.cableRide;
+  if (!ride?.active) return false;
+  const v = cableVec();
+  ride.along += ride.dir * 268 * dt;
+  let ix = 0;
+  let iy = 0;
+  if (keys.has("KeyW") || keys.has("ArrowUp")) iy -= 1;
+  if (keys.has("KeyS") || keys.has("ArrowDown")) iy += 1;
+  if (keys.has("KeyA") || keys.has("ArrowLeft")) ix -= 1;
+  if (keys.has("KeyD") || keys.has("ArrowRight")) ix += 1;
+  const ilen = Math.hypot(ix, iy);
+  if (ilen) {
+    ix /= ilen;
+    iy /= ilen;
+    ride.side += (ix * v.px + iy * v.py) * 240 * dt;
+  }
+  const maxSide = v.c.half - 24;
+  ride.side = Math.max(-maxSide, Math.min(maxSide, ride.side));
+  if (ride.along <= 8) {
+    const roof = roomById("rooftop");
+    player.x = roof.x + roof.w - 160;
+    player.y = roof.y + 210;
+    state.cableRide = null;
+    toast("옥상에 내렸다.");
+    return true;
+  }
+  if (ride.along >= v.len - 8) {
+    const watch = roomById("skywatch");
+    player.x = watch.x + 180;
+    player.y = watch.y + watch.h - 210;
+    state.cableRide = null;
+    toast("관측대에 도착했다.");
+    return true;
+  }
+  const p = cablePoint(ride.along, ride.side);
+  player.x = p.x;
+  player.y = p.y;
+  player.facing = Math.atan2(v.uy * ride.dir, v.ux * ride.dir);
+  tickCableHazards(performance.now());
+  return true;
+}
+
+function cableGiantEyes() {
+  const v = cableVec();
+  return [
+    { along: v.len * 0.28, side: 168, phase: 0.1 },
+    { along: v.len * 0.55, side: -176, phase: 1.2 },
+    { along: v.len * 0.78, side: 160, phase: 0.6 },
+  ];
+}
+
+function distToSeg(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const l2 = dx * dx + dy * dy;
+  let t = l2 ? ((px - x1) * dx + (py - y1) * dy) / l2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function tickCableHazards(now) {
+  if (!player.alive || isGhost()) return;
+  if (state.admin && state.adminGod) return;
+  const ride = state.cableRide;
+  if (!ride?.active) return;
+  const v = cableVec();
+  for (let i = 1; i <= 12; i++) {
+    const along = (v.len * i) / 13;
+    const side = i % 2 ? 1 : -1;
+    const pop = peekAmt(i * 0.33, now, 1.85);
+    if (pop < 0.25) continue;
+    const wall = (v.c.half - 6) * side;
+    const p = cablePoint(along, wall - side * pop * 54);
+    if (Math.hypot(player.x - p.x, player.y - p.y) < 20 + pop * 8) {
+      hazHit(20, "벽의 눈이 스쳤다.");
+      return;
+    }
+  }
+  for (const g of cableGiantEyes()) {
+    const origin = cablePoint(g.along, g.side);
+    const sweep = Math.sin(now / 700 + g.phase) * 0.55;
+    const ang = Math.atan2(-g.side * v.py, -g.side * v.px) + sweep;
+    const reach = v.c.half * 2 + 90;
+    const x2 = origin.x + Math.cos(ang) * reach;
+    const y2 = origin.y + Math.sin(ang) * reach;
+    const on = (now / 1000 + g.phase) % 2.4 < 1.15;
+    if (!on) continue;
+    if (distToSeg(player.x, player.y, origin.x, origin.y, x2, y2) < 16) {
+      hazHit(20, "레이저.");
+      return;
+    }
+  }
+}
+
+function drawLidEye(x, y, r, open) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(1, 0.22 + open * 0.78);
+  ctx.fillStyle = "#e8eaee";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.15, r * 0.72, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#e11d2e";
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#2a0306";
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawCableRide() {
+  if (!skyIsOpen()) return;
+  const v = cableVec();
+  const now = performance.now();
+  for (let i = 1; i <= 12; i++) {
+    const along = (v.len * i) / 13;
+    const side = i % 2 ? 1 : -1;
+    const pop = peekAmt(i * 0.33, now, 1.85);
+    const wall = (v.c.half - 4) * side;
+    const p = cablePoint(along, wall - side * pop * 54);
+    drawLidEye(p.x, p.y, 18, 0.35 + pop * 0.65);
+  }
+  for (const g of cableGiantEyes()) {
+    const origin = cablePoint(g.along, g.side);
+    drawLidEye(origin.x, origin.y, 58, 0.92);
+    const sweep = Math.sin(now / 700 + g.phase) * 0.55;
+    const ang = Math.atan2(-g.side * v.py, -g.side * v.px) + sweep;
+    const reach = v.c.half * 2 + 90;
+    const on = (now / 1000 + g.phase) % 2.4 < 1.15;
+    if (!on) continue;
+    ctx.strokeStyle = "rgba(225, 29, 46, 0.82)";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(origin.x + Math.cos(ang) * reach, origin.y + Math.sin(ang) * reach);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 210, 210, 0.9)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(origin.x + Math.cos(ang) * reach, origin.y + Math.sin(ang) * reach);
+    ctx.stroke();
+  }
+  const ride = state.cableRide;
+  if (!ride?.active) return;
+  const p = cablePoint(ride.along, ride.side);
+  const sway = Math.sin(now / 180) * 3;
+  ctx.save();
+  ctx.translate(p.x + v.px * sway, p.y + v.py * sway);
+  ctx.rotate(Math.atan2(v.uy, v.ux));
+  ctx.fillStyle = "#1c1a16";
+  ctx.fillRect(-34, 10, 68, 44);
+  ctx.fillStyle = "#3a342c";
+  ctx.fillRect(-30, 14, 60, 22);
+  ctx.strokeStyle = "#8a8070";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-18, 10);
+  ctx.lineTo(-18, -18);
+  ctx.moveTo(18, 10);
+  ctx.lineTo(18, -18);
+  ctx.moveTo(-28, -18);
+  ctx.lineTo(28, -18);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function holdLamp(dt) {
@@ -1435,6 +1649,7 @@ function promptText() {
   if (state.bossFight && !state.eye?.caught && (loc.id === "trial" || loc.id === "endless")) {
     return chasePrompt();
   }
+  if (loc.id === "cable") return state.cableRide?.active ? "WASD로 옆으로 피하면서 올라간다" : "케이블카";
   if (loc.kind !== "room") return gateLine || groundPrompt();
   const c = roomCenter(loc.id);
   const near = Math.hypot(player.x - c.x, player.y - c.y) < 200;
@@ -1585,6 +1800,8 @@ function startBoss() {
   state.eyeParts = [];
   state.cannon = null;
   state.eyeBall = null;
+  state.wallEyes = [];
+  state.hazHitAt = 0;
   state.eye = { x: 0, y: 0, caught: false, spawned: false };
   toast("도전로로 들어가라. 눈이 뒤에서 쫓아온다.");
   paintAdminTools();
@@ -1619,7 +1836,7 @@ function chasePrompt() {
   if (!state.eye?.spawned) return "눈이 온다";
   const n = partsHeld();
   if (state.cannon?.assembled) {
-    if (nearCannon()) return state.eyeBall ? "포탄이 날아간다" : "마우스 조준 · 클릭/E 발사";
+    if (nearCannon()) return state.eyeBall ? "포탄이 날아간다" : "조준 중 · 눈이 멈춘다 · 클릭/E 발사";
     return "대포로 달려가라";
   }
   if (n >= 3 && nearCannon()) return "E  대포를 조립하다";
@@ -1651,6 +1868,12 @@ function buildChaseCourse() {
   const pad = cannonSpot();
   state.cannon = { x: pad.x, y: pad.y, assembled: false, angle: Math.PI, ammo: 3, cool: 0 };
   state.eyeBall = null;
+  state.wallEyes = [640, 1020, 1480, 1900, 2320].map((ox, i) => ({
+    x: hall.x + ox,
+    y: i % 2 === 0 ? y0 + 10 : y0 + h - 10,
+    side: i % 2 === 0 ? 1 : -1,
+    phase: i * 0.41,
+  }));
 }
 
 function spawnEyeBehind() {
@@ -1772,29 +1995,78 @@ function tickEye(dt) {
   if (!state.bossFight || !state.eye || state.eye.caught || !state.eye.spawned) return;
   takeChasePart();
   tickCannon(dt);
+  const aiming = !!(state.cannon?.assembled && nearCannon());
   const e = state.eye;
   const dx = player.x - e.x;
   const dy = player.y - e.y;
   const dist = Math.hypot(dx, dy) || 1;
-  const step = 312 * dt;
-  if (dist > 40) {
+  if (aiming) {
+    if (dist < 160) {
+      e.x -= (dx / dist) * (160 - dist);
+      e.y -= (dy / dist) * (160 - dist);
+    }
+  } else if (dist > 40) {
+    const step = 312 * dt;
     e.x += (dx / dist) * step;
     e.y += (dy / dist) * step;
   }
   tickEyeHit(performance.now());
 }
 
+function shoveForward() {
+  let left = 320;
+  while (left > 0) {
+    const step = Math.min(24, left);
+    const nx = player.x + step;
+    if (!isWalkable(nx, player.y) || chaseBlocked(nx, player.y)) break;
+    player.x = nx;
+    left -= step;
+  }
+}
+
+function wallEyePos(eye, now) {
+  const pop = peekAmt(eye.phase, now, 1.7);
+  return { x: eye.x, y: eye.y + eye.side * (18 + pop * 62), r: 16 + pop * 10, pop };
+}
+
+function peekAmt(phase, now, period) {
+  const t = (now / 1000 + phase) % period;
+  if (t < 0.28) return t / 0.28;
+  if (t < 0.62) return 1;
+  if (t < 0.9) return 1 - (t - 0.62) / 0.28;
+  return 0;
+}
+
+function hazHit(amount, msg) {
+  const now = performance.now();
+  if (now - (state.hazHitAt || 0) < 520) return;
+  state.hazHitAt = now;
+  hurt(amount, "eye");
+  toast(msg);
+}
+
 function tickEyeHit(now) {
   if (!player.alive || isGhost()) return;
-  if (state.admin && state.adminGod) return;
-  if (now - (state.eyeHitAt || 0) < 750) return;
   const loc = locate(player.x, player.y);
   if (loc.id !== "endless" && loc.id !== "trial") return;
   const e = state.eye;
-  if (e?.spawned && Math.hypot(player.x - e.x, player.y - e.y) < 42) {
-    state.eyeHitAt = now;
-    hurt(34, "eye");
-    toast("눈이 덮쳤다.");
+  if (e?.spawned && Math.hypot(player.x - e.x, player.y - e.y) < 46) {
+    if (now - (state.eyeHitAt || 0) >= 750) {
+      state.eyeHitAt = now;
+      shoveForward();
+      hurt(99, "eye");
+      toast("눈이 덮쳤다.");
+    }
+    return;
+  }
+  if (state.admin && state.adminGod) return;
+  for (const w of state.wallEyes || []) {
+    const p = wallEyePos(w, now);
+    if (p.pop < 0.2) continue;
+    if (Math.hypot(player.x - p.x, player.y - p.y) < p.r + 12) {
+      hazHit(20, "벽의 눈이 스쳤다.");
+      return;
+    }
   }
 }
 
@@ -1806,6 +2078,12 @@ function drawEyeCombat() {
     ctx.strokeStyle = "#5a4a3a";
     ctx.lineWidth = 2;
     ctx.strokeRect(o.x + 1, o.y + 1, o.w - 2, o.h - 2);
+  }
+  const now = performance.now();
+  for (const w of state.wallEyes || []) {
+    const p = wallEyePos(w, now);
+    if (p.pop <= 0) continue;
+    drawLidEye(p.x, p.y, p.r, 0.3 + p.pop * 0.7);
   }
   for (const p of state.eyeParts || []) {
     if (p.got) continue;
@@ -2170,6 +2448,7 @@ function drawFacility(now, lamp) {
   const sky = skyLayer();
   if (sky) ctx.drawImage(sky.canvas, sky.x, sky.y);
   paintSkyLive(ctx);
+  drawCableRide();
   drawEyeCombat();
   drawLever();
   drawGateSeal();
