@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=46";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=46";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=46";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=46";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=46";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=46";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=47";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=47";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=47";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=47";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=47";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=47";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -1949,44 +1949,24 @@ function buildChaseCourse() {
   const h = hall.h;
   const mid = y0 + h / 2;
   const run = hall.w - 320;
-  const top = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 92, h: 92, kind: "top" });
-  const bot = (ox) => ({ x: hall.x + ox, y: y0 + h - 100, w: 92, h: 92, kind: "bot" });
-  const pinch = (ox) => ({ x: hall.x + ox, y: y0 + 70, w: 70, h: 100, kind: "pinch" });
-  const tall = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 52, h: h - 86, kind: "tall" });
-  const low = (ox) => ({ x: hall.x + ox, y: y0 + 86, w: 96, h: h - 94, kind: "low" });
   const blocks = [];
   const lasers = [];
   const eyes = [];
-  const make = [top, bot, pinch, tall, low];
+  const gapH = 130;
+  const slots = [18, (h - gapH) / 2, h - gapH - 18];
   let i = 0;
   for (let ox = 140; ox < run; ox += 150, i++) {
-    const block = make[i % 5](ox);
-    blocks.push(block);
+    const gapTop = slots[i % slots.length];
+    const bw = 88;
+    const x = hall.x + ox;
+    if (gapTop > 14) blocks.push({ x, y: y0, w: bw, h: gapTop, kind: "wall" });
+    const below = gapTop + gapH;
+    if (h - below > 14) blocks.push({ x, y: y0 + below, w: bw, h: h - below, kind: "wall" });
+    if (i % 2 !== 0) continue;
     const phase = i * 0.27;
-    const cx = block.x + block.w / 2;
-    let ex = cx;
-    let ey = block.y + block.h / 2;
-    let laser = null;
-    if (block.kind === "top") {
-      ey = block.y + block.h - 6;
-      laser = { x: block.x - 8, y: block.y + block.h + 2, w: block.w + 16, h: 26, phase };
-    } else if (block.kind === "bot") {
-      ey = block.y + 6;
-      laser = { x: block.x - 8, y: block.y - 28, w: block.w + 16, h: 26, phase };
-    } else if (block.kind === "tall") {
-      ey = block.y + block.h - 8;
-      laser = { x: block.x - 16, y: block.y + block.h + 2, w: block.w + 70, h: 24, phase };
-    } else if (block.kind === "low") {
-      ey = block.y + 8;
-      laser = { x: block.x - 16, y: block.y - 26, w: block.w + 40, h: 24, phase };
-    } else {
-      ex = block.x + block.w - 8;
-      laser = { x: block.x + block.w + 2, y: ey - 12, w: 88, h: 24, phase };
-    }
-    if (i % 2 === 0) {
-      eyes.push({ x: ex, y: ey, phase, host: true });
-      lasers.push(laser);
-    }
+    const eyeY = gapTop > 14 ? y0 + gapTop - 10 : y0 + below + 10;
+    eyes.push({ x: x + bw / 2, y: eyeY, phase, host: true });
+    lasers.push({ x: x - 8, y: y0 + gapTop + gapH / 2 - 13, w: bw + 16, h: 26, phase });
   }
   state.chaseBlocks = blocks;
   state.chaseLids = [];
@@ -1998,7 +1978,8 @@ function buildChaseCourse() {
     { id: "shell", name: "포탄", x: hall.x + run * 0.78, y: mid + 52, got: false },
   ];
   for (const p of state.eyeParts) {
-    const tryY = [mid, y0 + 42, y0 + h - 42, mid + 40, mid - 40];
+    const tryY = [];
+    for (let y = y0 + 36; y < y0 + h - 24; y += 36) tryY.push(y);
     if (!chaseBlocked(p.x, p.y) && isWalkable(p.x, p.y)) continue;
     for (const y of tryY) {
       if (!chaseBlocked(p.x, y) && isWalkable(p.x, y)) {
@@ -2186,7 +2167,7 @@ function tickEye(dt) {
       e.y -= (dy / dist) * (160 - dist);
     }
   } else if (dist > 40) {
-    const step = 312 * dt;
+    const step = 218 * dt;
     e.x += (dx / dist) * step;
     e.y += (dy / dist) * step;
   }
