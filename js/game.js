@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=42";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=42";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=42";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=42";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=42";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=42";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=43";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=43";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=43";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=43";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=43";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=43";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -670,11 +670,14 @@ function resetRun(difficulty) {
   state.eyeScene = null;
   state.eyeHitAt = 0;
   state.chaseBlocks = [];
+  state.chaseLids = [];
+  state.chaseLasers = [];
   state.eyeParts = [];
   state.cannon = null;
   state.eyeBall = null;
   state.cableRide = null;
   state.wallEyes = [];
+  state.eyeSplit = null;
   state.hazHitAt = 0;
   closeMinigames();
   closeMission();
@@ -1797,10 +1800,13 @@ function startBoss() {
   state.eyeScene = null;
   state.eyeHitAt = 0;
   state.chaseBlocks = [];
+  state.chaseLids = [];
+  state.chaseLasers = [];
   state.eyeParts = [];
   state.cannon = null;
   state.eyeBall = null;
   state.wallEyes = [];
+  state.eyeSplit = null;
   state.hazHitAt = 0;
   state.eye = { x: 0, y: 0, caught: false, spawned: false };
   toast("도전로로 들어가라. 눈이 뒤에서 쫓아온다.");
@@ -1844,10 +1850,28 @@ function chasePrompt() {
   return `부품 ${n}/3 · 눈을 피해 달려라`;
 }
 
+function lidState(l, now) {
+  const t = (now / 1000 + l.phase) % l.period;
+  const shut = t < l.shutDur;
+  const gap = shut ? l.gapShut : l.gapOpen;
+  const mid = l.y + l.h / 2;
+  return { shut, gy: mid - gap / 2, gh: gap };
+}
+
+function beamOn(h, now) {
+  return (now / 1000 + h.phase) % h.period < h.on;
+}
+
 function chaseBlocked(x, y) {
   if (!state.bossFight || state.eye?.caught) return false;
   for (const o of state.chaseBlocks || []) {
     if (x > o.x && x < o.x + o.w && y > o.y && y < o.y + o.h) return true;
+  }
+  const now = performance.now();
+  for (const l of state.chaseLids || []) {
+    if (x < l.x || x > l.x + l.w) continue;
+    const g = lidState(l, now);
+    if (y < g.gy + 12 || y > g.gy + g.gh - 12) return true;
   }
   return false;
 }
@@ -1860,20 +1884,54 @@ function buildChaseCourse() {
   const run = hall.w - 320;
   const top = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 82, h: 86 });
   const bot = (ox) => ({ x: hall.x + ox, y: y0 + h - 94, w: 82, h: 86 });
-  const pinch = (ox) => ({ x: hall.x + ox, y: y0 + 70, w: 64, h: 100 });
-  const tall = (ox) => ({ x: hall.x + ox, y: y0 + 8, w: 48, h: h - 86 });
-  const low = (ox) => ({ x: hall.x + ox, y: y0 + 86, w: 90, h: h - 94 });
   const blocks = [];
+  const lids = [];
+  const lasers = [];
+  const eyes = [];
   let i = 0;
-  for (let ox = 260; ox < run; ox += 310, i++) {
-    const kind = i % 5;
-    if (kind === 0) blocks.push(top(ox));
-    else if (kind === 1) blocks.push(bot(ox));
-    else if (kind === 2) blocks.push(pinch(ox));
-    else if (kind === 3) blocks.push(tall(ox));
-    else blocks.push(low(ox));
+  for (let ox = 240; ox < run; ox += 300, i++) {
+    const kind = i % 7;
+    if (kind === 0 || kind === 4) {
+      lids.push({
+        x: hall.x + ox,
+        y: y0,
+        w: 68,
+        h,
+        phase: i * 0.23,
+        period: kind === 4 ? 1.2 : 1.55,
+        shutDur: kind === 4 ? 0.32 : 0.4,
+        gapOpen: h - 24,
+        gapShut: kind === 4 ? 72 : 98,
+      });
+    } else if (kind === 1) {
+      lasers.push({ x: hall.x + ox, y: y0 + 14, w: 170, h: 30, phase: i * 0.19, period: 1.28, on: 0.38 });
+    } else if (kind === 2) {
+      lasers.push({ x: hall.x + ox, y: y0 + h - 44, w: 170, h: 30, phase: i * 0.17, period: 1.15, on: 0.34 });
+    } else if (kind === 3) {
+      lasers.push({ x: hall.x + ox + 20, y: y0 + 18, w: 22, h: h - 36, phase: i * 0.21, period: 1.4, on: 0.3 });
+    } else if (kind === 5) {
+      eyes.push({
+        x: hall.x + ox + 20,
+        y: i % 2 === 0 ? y0 + 10 : y0 + h - 10,
+        side: i % 2 === 0 ? 1 : -1,
+        phase: i * 0.31,
+      });
+    } else if (i % 14 === 6) {
+      blocks.push(i % 2 ? top(ox) : bot(ox));
+    }
+  }
+  for (let ox = 500; ox < run - 80; ox += 380, i++) {
+    eyes.push({
+      x: hall.x + ox,
+      y: i % 2 === 0 ? y0 + 10 : y0 + h - 10,
+      side: i % 2 === 0 ? 1 : -1,
+      phase: i * 0.29,
+    });
   }
   state.chaseBlocks = blocks;
+  state.chaseLids = lids;
+  state.chaseLasers = lasers;
+  state.wallEyes = eyes;
   state.eyeParts = [
     { id: "barrel", name: "포신", x: hall.x + run * 0.18, y: mid + 52, got: false },
     { id: "mount", name: "포대", x: hall.x + run * 0.48, y: mid - 52, got: false },
@@ -1892,17 +1950,6 @@ function buildChaseCourse() {
   const pad = cannonSpot();
   state.cannon = { x: pad.x, y: pad.y, assembled: false, angle: Math.PI, ammo: 3, cool: 0 };
   state.eyeBall = null;
-  const eyes = [];
-  let ei = 0;
-  for (let ox = 380; ox < run - 80; ox += 420, ei++) {
-    eyes.push({
-      x: hall.x + ox,
-      y: ei % 2 === 0 ? y0 + 10 : y0 + h - 10,
-      side: ei % 2 === 0 ? 1 : -1,
-      phase: ei * 0.37,
-    });
-  }
-  state.wallEyes = eyes;
 }
 
 function spawnEyeBehind() {
@@ -1938,12 +1985,56 @@ function takeChasePart() {
 function catchEye() {
   const e = state.eye;
   if (!e || e.caught) return;
+  state.eyeSplit = { x: e.x, y: e.y, t: 0, dur: 1.55 };
   e.caught = true;
   e.spawned = false;
   state.bossFight = false;
   state.eyeBall = null;
-  toast("대포가 눈을 맞혔다.");
+  toast("눈을 반으로 갈랐다.");
   paintAdminTools();
+}
+
+function tickEyeSplit(dt) {
+  const s = state.eyeSplit;
+  if (!s) return;
+  s.t += dt;
+  if (s.t > s.dur) state.eyeSplit = null;
+}
+
+function drawEyeSplit() {
+  const s = state.eyeSplit;
+  if (!s) return;
+  const k = Math.min(1, s.t / s.dur);
+  const ease = 1 - (1 - k) * (1 - k);
+  const sep = ease * 78;
+  const fade = 1 - k * 0.2;
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(s.x - 90, s.y - 90 - sep, 180, 90);
+  ctx.clip();
+  ctx.translate(s.x, s.y - sep);
+  ctx.rotate(-ease * 0.42);
+  ctx.translate(-s.x, -s.y);
+  drawLidEye(s.x, s.y, 44, 1);
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(s.x - 90, s.y, 180, 90 + sep);
+  ctx.clip();
+  ctx.translate(s.x, s.y + sep);
+  ctx.rotate(ease * 0.42);
+  ctx.translate(-s.x, -s.y);
+  drawLidEye(s.x, s.y, 44, 1);
+  ctx.restore();
+  ctx.strokeStyle = `rgba(255,255,255,${1 - k})`;
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.moveTo(s.x - 70 - ease * 20, s.y - 6);
+  ctx.lineTo(s.x + 70 + ease * 20, s.y + 6);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function fireCannon() {
@@ -2091,16 +2182,47 @@ function tickEyeHit(now) {
   if (state.admin && state.adminGod) return;
   for (const w of state.wallEyes || []) {
     const p = wallEyePos(w, now);
-    if (p.pop < 0.2) continue;
+    if (p.pop < 0.35) continue;
     if (Math.hypot(player.x - p.x, player.y - p.y) < p.r + 12) {
       hazHit(20, "벽의 눈이 스쳤다.");
+      return;
+    }
+  }
+  for (const l of state.chaseLids || []) {
+    if (player.x < l.x || player.x > l.x + l.w) continue;
+    const g = lidState(l, now);
+    if (g.shut && (player.y < g.gy + 10 || player.y > g.gy + g.gh - 10)) {
+      hazHit(20, "눈이 감겼다.");
+      return;
+    }
+  }
+  for (const b of state.chaseLasers || []) {
+    if (!beamOn(b, now)) continue;
+    if (player.x > b.x && player.x < b.x + b.w && player.y > b.y && player.y < b.y + b.h) {
+      hazHit(20, "레이저.");
       return;
     }
   }
 }
 
 function drawEyeCombat() {
+  drawEyeSplit();
   if (!state.bossFight || state.eye?.caught) return;
+  const now = performance.now();
+  const hall = endlessRect();
+  ctx.save();
+  ctx.globalAlpha = 0.35 + chaseFlicker(now) * 1.4;
+  ctx.strokeStyle = "#c8e6ff";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const sx = hall.x + ((now / 8 + i * 2400) % hall.w);
+    ctx.beginPath();
+    ctx.moveTo(sx, hall.y + 4);
+    ctx.lineTo(sx + 18, hall.y + 22);
+    ctx.lineTo(sx - 8, hall.y + 40);
+    ctx.stroke();
+  }
+  ctx.restore();
   for (const o of state.chaseBlocks || []) {
     ctx.fillStyle = "#2a2420";
     ctx.fillRect(o.x, o.y, o.w, o.h);
@@ -2108,11 +2230,28 @@ function drawEyeCombat() {
     ctx.lineWidth = 2;
     ctx.strokeRect(o.x + 1, o.y + 1, o.w - 2, o.h - 2);
   }
-  const now = performance.now();
+  for (const l of state.chaseLids || []) {
+    const g = lidState(l, now);
+    ctx.fillStyle = g.shut ? "rgba(225, 29, 46, 0.62)" : "rgba(225, 29, 46, 0.18)";
+    ctx.beginPath();
+    ctx.ellipse(l.x + l.w / 2, l.y + l.h / 2, l.w * 0.92, l.h / 2 - 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#100206";
+    ctx.fillRect(l.x, l.y, l.w, Math.max(0, g.gy - l.y));
+    ctx.fillRect(l.x, g.gy + g.gh, l.w, Math.max(0, l.y + l.h - (g.gy + g.gh)));
+    drawLidEye(l.x + l.w / 2, l.y + l.h / 2, 15, g.shut ? 0.08 : 0.95);
+  }
+  for (const b of state.chaseLasers || []) {
+    if (!beamOn(b, now)) continue;
+    ctx.fillStyle = "rgba(225, 36, 48, 0.78)";
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = "rgba(255, 220, 220, 0.55)";
+    ctx.fillRect(b.x, b.y + b.h * 0.35, b.w, Math.max(2, b.h * 0.28));
+  }
   for (const w of state.wallEyes || []) {
     const p = wallEyePos(w, now);
     if (p.pop <= 0) continue;
-    drawLidEye(p.x, p.y, p.r, 0.3 + p.pop * 0.7);
+    drawLidEye(p.x, p.y, p.r, p.pop < 0.45 ? p.pop : 0.95);
   }
   for (const p of state.eyeParts || []) {
     if (p.got) continue;
@@ -2414,6 +2553,16 @@ function animateGhosts(dt) {
   for (const id of ghosts.keys()) if (!seen.has(id)) ghosts.delete(id);
 }
 
+function chaseFlicker(now) {
+  const n = now / 1000;
+  const a = (Math.sin(n * 11.3) + 1) * 0.5;
+  const b = (Math.sin(n * 29.7 + 1.7) + 1) * 0.5;
+  const burst = a * b;
+  if (burst > 0.78) return 0.1 + (burst - 0.78) * 0.45;
+  if (burst > 0.52) return 0.035;
+  return 0.012;
+}
+
 let darkLayer = null;
 
 function drawDark(w, h, lamp, now) {
@@ -2422,7 +2571,10 @@ function drawDark(w, h, lamp, now) {
   const ghost = isGhost();
   const lit = sim.power || ghost;
   const haunted = danger() > 0 && sim.power && !ghost;
-  const dark = lit ? (haunted ? 0.55 : 0.22) : 0.94;
+  let dark = lit ? (haunted ? 0.55 : 0.22) : 0.94;
+  if (!ghost && (inChase() || ["endless", "trial", "cable"].includes(locate(player.x, player.y).id))) {
+    dark = Math.min(0.78, dark + chaseFlicker(now));
+  }
   const rad = lit ? 980 : 120;
   if (!darkLayer) darkLayer = document.createElement("canvas");
   if (darkLayer.width !== Math.ceil(w) || darkLayer.height !== Math.ceil(h)) {
@@ -2669,6 +2821,7 @@ function loop(now) {
       tickReactor();
       tickChoke(dt);
       tickEye(dt);
+      tickEyeSplit(dt);
     }
     const lamp = holdLamp(dt);
     animateGhosts(dt);
