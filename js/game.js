@@ -1,9 +1,10 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=36";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=36";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=36";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=36";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=36";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=36";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive } from "./map.js?v=37";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=37";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=37";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=37";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=37";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=37";
+import { initDash, openDash, closeDash, dashOpen } from "./dash.js?v=37";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -666,6 +667,8 @@ function resetRun(difficulty) {
   resetAnnex();
   state.bossFight = false;
   state.eye = null;
+  state.dashLock = false;
+  closeDash(false);
   closeMinigames();
   closeMission();
   hide("map-overlay");
@@ -767,6 +770,7 @@ function stopClock() {
 }
 
 function tickReactor() {
+  if (dashOpen()) return;
   if (!sim?.reactor || sim.meltdown || state.paused || state.phase !== "play") return;
   if (state.multi && !amHost()) return;
   if (Date.now() < sim.reactor.deadlineAt) return;
@@ -776,7 +780,28 @@ function tickReactor() {
   if (state.multi) publish();
 }
 
+function tickDashEnter() {
+  if (!state.bossFight || state.eye?.caught || dashOpen() || state.dashLock) return;
+  if (locate(player.x, player.y).id !== "trial") return;
+  state.dashLock = true;
+  openDash({
+    color: state.color,
+    onWin() {
+      state.bossFight = false;
+      if (state.eye) state.eye.caught = true;
+      state.dashLock = false;
+      toast("눈을 잡았다.");
+      paintAdminTools();
+    },
+    onAbort() {
+      state.dashLock = false;
+      toast("도전로에서 다시 시작할 수 있다.");
+    },
+  });
+}
+
 function tickTime(dt) {
+  if (dashOpen()) return;
   if (!clockOn || state.phase !== "play" || state.paused || !sim) return;
   if (!state.multi && !player.alive) return;
   if (state.multi && !amHost()) return;
@@ -813,7 +838,7 @@ function fixReactor() {
 }
 
 function busy() {
-  return minigameOpen() || missionOpen();
+  return minigameOpen() || missionOpen() || dashOpen();
 }
 
 function finishTask(roomId) {
@@ -1434,8 +1459,13 @@ function promptText() {
   if (loc.id === "gate") return gateLine || "E  카드 인증";
   if (loc.id === "release") {
     if (state.eye?.caught) return "눈을 잡았다";
-    if (state.bossFight) return "눈을 쫓아라";
+    if (state.bossFight) return "도전로로 들어가라";
     return "E  괴물을 놓다";
+  }
+  if (loc.id === "trial") {
+    if (state.eye?.caught) return "눈을 잡았다";
+    if (state.bossFight) return "눈이 온다";
+    return "먼저 괴물개방에서 눈을 놓아라";
   }
   const actions = actionsFor(loc.id, missionProgress());
   if (actions.length) return `E  ${actions.map((action) => action.label).join(" · ")}`;
@@ -1563,11 +1593,12 @@ function startBoss() {
   const hall = endlessRect();
   state.bossFight = true;
   state.eye = { x: hall.x + hall.w - 120, y: hall.y + hall.h / 2, vx: -280, caught: false };
-  toast("눈을 잡아라. 복도는 잡을 때까지 끝나지 않는다.");
+  toast("도전로로 들어가라. 눈이 기다린다.");
   paintAdminTools();
 }
 
 function tickEye(dt) {
+  if (dashOpen()) return;
   if (!state.bossFight || !state.eye) return;
   const hall = endlessRect();
   const e = state.eye;
@@ -2046,6 +2077,7 @@ function loop(now) {
     if (state.roomData) renderLobby(state.roomData);
   } else if (state.phase === "play" || state.phase === "dead") {
     if (state.phase === "play") {
+      tickDashEnter();
       movePlayer(dt);
       tickTime(dt);
       tickReactor();
@@ -2072,6 +2104,10 @@ function typing() {
 }
 
 function closeTop() {
+  if (dashOpen()) {
+    closeDash(true);
+    return true;
+  }
   if (busy()) {
     closeMinigames();
     closeMission();
@@ -2114,6 +2150,7 @@ function goMenu() {
   state.launching = false;
   state.countdownSent = false;
   paintAdminTools();
+  closeDash(false);
   closeMinigames();
   closeMission();
   hide("hud");
@@ -2252,6 +2289,7 @@ function bind() {
   try {
     initMinigames({ onPower: fixPower, onReactor: fixReactor, onGate: finishGate });
     initMissions({ onDone: finishTask, onDownload: noteDownload, onSignal: clearSediment });
+    initDash();
   } catch (err) {
     console.error(err);
   }
@@ -2268,6 +2306,7 @@ function bind() {
   window.addEventListener("keyup", (e) => keys.delete(e.code));
   window.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
+    if (dashOpen()) return;
     if (e.target.closest && e.target.closest("button, input, a, .panel")) return;
     pointer = true;
     const item = inv[selected];
