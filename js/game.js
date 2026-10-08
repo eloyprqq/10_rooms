@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById } from "./map.js?v=34";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=34";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=34";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=34";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=34";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=34";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect } from "./map.js?v=35";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=35";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=35";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=35";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=35";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=35";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -155,6 +155,7 @@ function applyCompleteAll() {
     if (!(sim.doneTasks || []).includes(task.id)) sim.doneTasks.push(task.id);
   }
   if (!sim.worldOpen) noteProgress();
+  noteSky();
   toast("모든 미션을 마쳤다.");
   state.taskSig = null;
   updateTaskbar();
@@ -188,6 +189,8 @@ function placeLabel() {
   const loc = locate(player.x, player.y);
   if (loc.kind === "room") return roomById(loc.id).name;
   if (loc.id === "diag") return "암복도";
+  if (loc.id === "cable") return "케이블카";
+  if (loc.id === "endless") return "끝없는 복도";
   if (loc.kind === "corridor") return "복도";
   return "시설";
 }
@@ -390,6 +393,7 @@ function publish() {
     tasks: (sim.doneTasks || []).slice(),
     dataGot: (sim.dataGot || []).slice(),
     worldOpen: !!sim.worldOpen,
+    skyOpen: !!sim.skyOpen,
     reactorHalted: !!sim.reactorHalted,
     powerHoldUntil: sim.powerHoldUntil || 0,
     sediment: sim.sediment && sim.sediment.start ? { start: sim.sediment.start, until: sim.sediment.until || sim.sediment.start + 10 } : { start: 0 },
@@ -540,6 +544,13 @@ function revealAnnex() {
   return true;
 }
 
+function revealSky() {
+  if (!sim || skyIsOpen()) return false;
+  sim.skyOpen = true;
+  openSky();
+  return true;
+}
+
 function noteProgress() {
   if (!sim || sim.worldOpen || coreDoneCount() < TASKS.length) return;
   sim.worldOpen = true;
@@ -548,10 +559,26 @@ function noteProgress() {
   toast("모든 미션을 마쳤다. 정원 서쪽에 통로가 열렸다.");
 }
 
+function noteSky() {
+  if (!sim || skyIsOpen()) return;
+  if (ANNEX_TASKS.some((task) => !(sim.doneTasks || []).includes(task.id))) return;
+  if (!annexIsOpen() && coreDoneCount() < TASKS.length) return;
+  if (!annexIsOpen()) {
+    sim.worldOpen = true;
+    revealAnnex();
+    if (!state.multi || amHost()) spawnAnnexMonsters(sim);
+  }
+  revealSky();
+  toast("옥상 위에 케이블카가 내려왔다.");
+}
+
 function applyFacility(world) {
   if (!world || !sim) return;
   if (world.worldOpen && revealAnnex() && state.phase === "play" && !amHost()) {
     toast("정원 서쪽에 통로가 열렸다.");
+  }
+  if (world.skyOpen && revealSky() && state.phase === "play" && !amHost()) {
+    toast("옥상 위에 케이블카가 내려왔다.");
   }
   if (world.reactorHalted && !sim.reactorHalted) {
     sim.reactorHalted = true;
@@ -633,7 +660,10 @@ function pushPresence() {
 }
 
 function resetRun(difficulty) {
+  resetSky();
   resetAnnex();
+  state.bossFight = false;
+  state.eye = null;
   closeMinigames();
   closeMission();
   hide("map-overlay");
@@ -802,6 +832,7 @@ function finishTask(roomId) {
   const line = task.id.startsWith("data:") ? `${task.name} 데이터를 올렸다.` : `${task.name} · ${task.title} 완료.`;
   if (!sim.worldOpen && coreDoneCount() >= TASKS.length) noteProgress();
   else toast(line);
+  noteSky();
   updateTaskbar();
   if (state.multi && amHost()) publish();
 }
@@ -847,6 +878,7 @@ function syncTasks(list) {
     const added = sim.doneTasks.filter((id) => !prev.has(id));
     const prevCore = TASKS.filter((task) => prev.has(task.id)).length;
     if (prevCore < TASKS.length && coreDoneCount() >= TASKS.length) noteProgress();
+    noteSky();
     else if (added.length) {
       const task = findTask(added[added.length - 1]);
       if (task) toast(`${task.name} 미션 완료.`);
@@ -1019,6 +1051,10 @@ function interact() {
     }
     if (near && loc.id === "store") {
       takeCells();
+      return;
+    }
+    if (near && loc.id === "release") {
+      startBoss();
       return;
     }
     if (near && loc.id === "electrical" && cellCount() >= 3) {
@@ -1282,13 +1318,18 @@ function movePlayer(dt) {
   if (keys.has("KeyA") || keys.has("ArrowLeft")) x -= 1;
   if (keys.has("KeyD") || keys.has("ArrowRight")) x += 1;
   const len = Math.hypot(x, y);
-  if (!len) return;
   const boost = performance.now() < state.boostUntil ? 1.5 : 1;
   const cheat = state.admin && state.adminFast && !inBossFight() ? 2 : 1;
   const speed = (state.phase === "lobby" ? 240 : 230) * boost * cheat;
-  const dx = (x / len) * speed * dt;
-  const dy = (y / len) * speed * dt;
-  player.facing = Math.atan2(y, x);
+  let dx = 0;
+  let dy = 0;
+  if (len) {
+    dx = (x / len) * speed * dt;
+    dy = (y / len) * speed * dt;
+    player.facing = Math.atan2(y, x);
+  }
+  if (state.bossFight && locate(player.x, player.y).id === "endless") dx -= 110 * dt;
+  if (!dx && !dy) return;
   if (isGhost()) {
     player.x = Math.max(WORLD.minX, Math.min(WORLD.maxX, player.x + dx));
     player.y = Math.max(WORLD.minY, Math.min(WORLD.maxY, player.y + dy));
@@ -1389,6 +1430,11 @@ function promptText() {
   if (loc.id === "store") return "E  에너지 캡슐";
   if (loc.id === "electrical" && cellCount() >= 3) return "E  에너지 캡슐을 꽂다";
   if (loc.id === "gate") return gateLine || "E  카드 인증";
+  if (loc.id === "release") {
+    if (state.eye?.caught) return "눈을 잡았다";
+    if (state.bossFight) return "눈을 쫓아라";
+    return "E  괴물을 놓다";
+  }
   const actions = actionsFor(loc.id, missionProgress());
   if (actions.length) return `E  ${actions.map((action) => action.label).join(" · ")}`;
   if (loc.id === "cctv") return "E  CCTV";
@@ -1500,6 +1546,71 @@ function crossesGate(x, y) {
   const next = locate(x, y);
   const inside = (loc) => loc.kind === "room" && loc.id === "gate";
   return inside(here) !== inside(next);
+}
+
+function startBoss() {
+  if (!skyIsOpen()) return;
+  if (state.eye?.caught) {
+    toast("이미 눈을 잡았다.");
+    return;
+  }
+  if (state.bossFight) {
+    toast("이미 놓아 주었다.");
+    return;
+  }
+  const hall = endlessRect();
+  state.bossFight = true;
+  state.eye = { x: hall.x + hall.w - 120, y: hall.y + hall.h / 2, vx: -280, caught: false };
+  toast("눈을 잡아라. 복도는 잡을 때까지 끝나지 않는다.");
+  paintAdminTools();
+}
+
+function tickEye(dt) {
+  if (!state.bossFight || !state.eye) return;
+  const hall = endlessRect();
+  const e = state.eye;
+  e.x += e.vx * dt;
+  if (e.x > hall.x + hall.w - 80) {
+    e.x = hall.x + hall.w - 80;
+    e.vx = -Math.abs(e.vx);
+  } else if (e.x < hall.x + 80) {
+    e.x = hall.x + 80;
+    e.vx = Math.abs(e.vx);
+  }
+  e.y = hall.y + hall.h / 2 + Math.sin(performance.now() / 180) * 34;
+  if (!player.alive) return;
+  if (Math.hypot(player.x - e.x, player.y - e.y) < 58) {
+    state.bossFight = false;
+    e.caught = true;
+    toast("눈을 잡았다.");
+    paintAdminTools();
+  }
+}
+
+function drawEye() {
+  const e = state.eye;
+  if (!e || e.caught) return;
+  const x = e.x - cam.x;
+  const y = e.y - cam.y;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = "#d8dbe0";
+  ctx.beginPath();
+  ctx.arc(0, 0, 34, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#e11d2e";
+  ctx.beginPath();
+  ctx.arc(0, 0, 18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#4a0408";
+  ctx.beginPath();
+  ctx.arc(0, 0, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath();
+  ctx.arc(8, -8, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function tickChoke(dt) {
@@ -1747,6 +1858,8 @@ function drawFacility(now, lamp) {
   ctx.drawImage(getFloorCanvas(), 0, 0);
   const annex = annexLayer();
   if (annex) ctx.drawImage(annex.canvas, annex.x, annex.y);
+  const sky = skyLayer();
+  if (sky) ctx.drawImage(sky.canvas, sky.x, sky.y);
   drawLever();
   drawGateSeal();
   for (const g of ground) {
@@ -1776,6 +1889,7 @@ function drawFacility(now, lamp) {
   }
   drawShieldLights(now);
   drawPings();
+  drawEye();
   for (const m of sim.monsters) {
     const g = ghosts.get(m.id) || anchorOf(m.place);
     if (!monsterLit(g.x, g.y)) continue;
@@ -1933,6 +2047,7 @@ function loop(now) {
       tickTime(dt);
       tickReactor();
       tickChoke(dt);
+      tickEye(dt);
     }
     const lamp = holdLamp(dt);
     animateGhosts(dt);

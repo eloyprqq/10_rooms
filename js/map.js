@@ -164,6 +164,76 @@ const annexCorridors = [
 let annexOpen = false;
 let annexCache = null;
 
+function skyRoom(id, name, x, y, dress, floor) {
+  return {
+    id,
+    name,
+    num: 0,
+    world: 2,
+    x,
+    y,
+    w: RW,
+    h: RH,
+    skip: 0.2,
+    floor,
+    accent: "#c8b8a0",
+    dress,
+  };
+}
+
+export const SKY = [
+  skyRoom("skywatch", "관측대", 4800, -840, "console", "#6a7c8a"),
+  skyRoom("skysupply", "보급소", 5960, -840, "crate", "#8a7356"),
+  skyRoom("skyarm", "무기고", 5960, -1820, "crate", "#8a7a62"),
+  skyRoom("escape", "탈출실", 5960, -2800, "console", "#6d7a68"),
+  skyRoom("release", "괴물개방", 4800, -3780, "tank", "#8a5c56"),
+  skyRoom("trial", "도전로", 5960, -3780, "pipe", "#7a6a58"),
+];
+
+for (const room of SKY) byId[room.id] = room;
+
+function tagSky(c) {
+  c.world = 2;
+  return c;
+}
+
+const CABLE = tagSky({
+  id: "cable",
+  a: "rooftop",
+  b: "skywatch",
+  kind: "diag",
+  x1: roof.x + roof.w - 48,
+  y1: roof.y + 48,
+  x2: byId.skywatch.x + 48,
+  y2: byId.skywatch.y + byId.skywatch.h - 48,
+  half: 72,
+});
+
+const SKY_HALL = 180;
+const endlessHall = tagSky({
+  id: "endless",
+  a: "trial",
+  b: "trial",
+  kind: "rect",
+  x: byId.trial.x + byId.trial.w,
+  y: byId.trial.y + byId.trial.h / 2 - SKY_HALL / 2,
+  w: 7800,
+  h: SKY_HALL,
+});
+
+const skyCorridors = [
+  CABLE,
+  tagSky(linkH("h-sky-watch-supply", "skywatch", "skysupply", SKY_HALL)),
+  tagSky(linkV("v-sky-supply-arm", "skyarm", "skysupply", SKY_HALL)),
+  tagSky(linkV("v-sky-arm-escape", "escape", "skyarm", SKY_HALL)),
+  tagSky(linkV("v-sky-escape-trial", "trial", "escape", SKY_HALL)),
+  tagSky(linkH("h-sky-release-trial", "release", "trial", SKY_HALL)),
+  endlessHall,
+];
+
+let skyOpen = false;
+let skyCache = null;
+
 const corrById = Object.fromEntries(CORRIDORS.map((c) => [c.id, c]));
 
 const WORLD0 = {
@@ -174,7 +244,10 @@ const WORLD0 = {
 };
 
 function activeRooms() {
-  return annexOpen ? ROOMS.concat(ANNEX) : ROOMS;
+  let list = ROOMS;
+  if (annexOpen) list = list.concat(ANNEX);
+  if (skyOpen) list = list.concat(SKY);
+  return list;
 }
 
 export function corridorById(id) {
@@ -237,8 +310,14 @@ function distToSeg(px, py, x1, y1, x2, y2) {
   return { dist: Math.hypot(px - x, py - y), t, x, y };
 }
 
-export function diagInfo(x, y) {
-  return distToSeg(x, y, DIAG.x1, DIAG.y1, DIAG.x2, DIAG.y2);
+export function diagInfo(x, y, c = DIAG) {
+  return distToSeg(x, y, c.x1, c.y1, c.x2, c.y2);
+}
+
+function onDiag(x, y, c, inner) {
+  const d = diagInfo(x, y, c);
+  const need = inner ? c.half - 6 : c.half;
+  return d.dist <= need && d.t >= (inner ? 0.04 : 0) && d.t <= (inner ? 0.96 : 1) ? d : null;
 }
 
 function inRect(x, y, r, pad = 0) {
@@ -246,9 +325,8 @@ function inRect(x, y, r, pad = 0) {
 }
 
 export function locate(x, y) {
-  const d = diagInfo(x, y);
-  if (d.dist <= DIAG.half - 6 && d.t > 0.07 && d.t < 0.93) {
-    return { kind: "corridor", id: DIAG.id };
+  for (const c of CORRIDORS) {
+    if (c.kind === "diag" && onDiag(x, y, c, true)) return { kind: "corridor", id: c.id };
   }
   for (const room of activeRooms()) {
     if (inRect(x, y, room)) return { kind: "room", id: room.id };
@@ -256,7 +334,9 @@ export function locate(x, y) {
   for (const c of CORRIDORS) {
     if (c.kind === "rect" && inRect(x, y, c)) return { kind: "corridor", id: c.id };
   }
-  if (d.dist <= DIAG.half && d.t >= 0 && d.t <= 1) return { kind: "corridor", id: DIAG.id };
+  for (const c of CORRIDORS) {
+    if (c.kind === "diag" && onDiag(x, y, c, false)) return { kind: "corridor", id: c.id };
+  }
   return { kind: "void", id: null };
 }
 
@@ -274,8 +354,11 @@ export function isWalkable(x, y) {
   for (const c of CORRIDORS) {
     if (c.kind === "rect" && inRect(x, y, hallWalkRect(c), -8)) return true;
   }
-  const d = diagInfo(x, y);
-  if (d.dist <= DIAG.half - 8 && d.t >= -0.02 && d.t <= 1.02) return true;
+  for (const c of CORRIDORS) {
+    if (c.kind !== "diag") continue;
+    const d = diagInfo(x, y, c);
+    if (d.dist <= c.half - 8 && d.t >= -0.02 && d.t <= 1.02) return true;
+  }
   return false;
 }
 
@@ -610,9 +693,124 @@ export function leverSpot() {
   return { x: c.x + c.w * 0.42, y: c.y + 34 };
 }
 
+export function skyIsOpen() {
+  return skyOpen;
+}
+
+export function endlessRect() {
+  return endlessHall;
+}
+
+export function openSky() {
+  if (skyOpen) return;
+  skyOpen = true;
+  for (const c of skyCorridors) {
+    CORRIDORS.push(c);
+    corrById[c.id] = c;
+  }
+  for (const room of SKY) {
+    WORLD.minY = Math.min(WORLD.minY, room.y - 80);
+    WORLD.maxX = Math.max(WORLD.maxX, room.x + room.w + 80);
+  }
+  WORLD.maxX = Math.max(WORLD.maxX, endlessHall.x + endlessHall.w + 80);
+  WORLD.minY = Math.min(WORLD.minY, endlessHall.y - 80);
+  floorCache = null;
+  skyCache = null;
+}
+
+export function resetSky() {
+  if (!skyOpen) return;
+  for (const c of skyCorridors) {
+    const i = CORRIDORS.indexOf(c);
+    if (i >= 0) CORRIDORS.splice(i, 1);
+    delete corrById[c.id];
+  }
+  skyOpen = false;
+  skyCache = null;
+  floorCache = null;
+  if (!annexOpen) {
+    WORLD.minX = WORLD0.minX;
+    WORLD.minY = WORLD0.minY;
+    WORLD.maxX = WORLD0.maxX;
+    WORLD.maxY = WORLD0.maxY;
+  } else {
+    WORLD.minX = WORLD0.minX;
+    WORLD.minY = WORLD0.minY;
+    WORLD.maxX = WORLD0.maxX;
+    WORLD.maxY = WORLD0.maxY;
+    for (const room of ANNEX) {
+      WORLD.minX = Math.min(WORLD.minX, room.x - 80);
+      WORLD.minY = Math.min(WORLD.minY, room.y - 80);
+    }
+  }
+}
+
 export function whichWorld(x, y) {
-  if (!annexOpen) return 0;
-  return x < byId.garden.x - 4 ? 1 : 0;
+  const loc = locate(x, y);
+  if (loc.kind === "room") {
+    const room = roomById(loc.id);
+    if (room?.world === 1) return 1;
+    if (room?.world === 2) return 2;
+  }
+  if (loc.kind === "corridor") {
+    const c = corridorById(loc.id);
+    if (c?.world === 1) return 1;
+    if (c?.world === 2) return 2;
+  }
+  if (annexOpen && x < byId.garden.x - 4) return 1;
+  return 0;
+}
+
+export function skyLayer() {
+  if (!skyOpen) return null;
+  if (skyCache) return skyCache;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const grow = (x, y) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  for (const room of SKY) {
+    grow(room.x - 8, room.y - 8);
+    grow(room.x + room.w + 8, room.y + room.h + 8);
+  }
+  for (const c of skyCorridors) {
+    if (c.kind === "diag") {
+      grow(Math.min(c.x1, c.x2) - 80, Math.min(c.y1, c.y2) - 80);
+      grow(Math.max(c.x1, c.x2) + 80, Math.max(c.y1, c.y2) + 80);
+    } else {
+      grow(c.x - 30, c.y - 30);
+      grow(c.x + c.w + 30, c.y + c.h + 30);
+    }
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(maxX - minX);
+  canvas.height = Math.ceil(maxY - minY);
+  const ctx = canvas.getContext("2d");
+  ctx.translate(-minX, -minY);
+  ctx.lineCap = "butt";
+  ctx.strokeStyle = "#5a636e";
+  ctx.lineWidth = CABLE.half * 2;
+  ctx.beginPath();
+  ctx.moveTo(CABLE.x1, CABLE.y1);
+  ctx.lineTo(CABLE.x2, CABLE.y2);
+  ctx.stroke();
+  ctx.strokeStyle = "#9aa6b2";
+  ctx.lineWidth = CABLE.half * 2 - 18;
+  ctx.beginPath();
+  ctx.moveTo(CABLE.x1, CABLE.y1);
+  ctx.lineTo(CABLE.x2, CABLE.y2);
+  ctx.stroke();
+  for (const c of skyCorridors) {
+    if (c.kind === "rect") paintHall(ctx, c);
+  }
+  for (const room of SKY) paintRoom(ctx, room);
+  skyCache = { canvas, x: minX, y: minY };
+  return skyCache;
 }
 
 function paintRoom(ctx, room) {
@@ -666,8 +864,9 @@ export function annexLayer() {
 }
 
 function worldFrame(mode) {
-  const rooms = mode === "both" ? ROOMS.concat(ANNEX) : mode === 1 ? ANNEX : ROOMS;
-  const halls = mode === "both" ? CORRIDORS : mode === 1 ? annexCorridors : CORRIDORS.filter((c) => !c.world);
+  const rooms = mode === 2 ? SKY : mode === 1 ? ANNEX : ROOMS;
+  const halls =
+    mode === 2 ? skyCorridors : mode === 1 ? annexCorridors : CORRIDORS.filter((c) => !c.world);
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -811,7 +1010,7 @@ export function drawSchematic(ctx, w, h, player, others = []) {
 }
 
 export function drawMinimap(ctx, w, h, player, monsters = [], world = 0, pending = []) {
-  const frame = worldFrame(world === 1 ? 1 : 0);
+  const frame = worldFrame(world === 2 ? 2 : world === 1 ? 1 : 0);
   const pendingSet = new Set(pending || []);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#171b22";
@@ -829,12 +1028,12 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0, pending
     if (loc.kind === "room" && roomById(loc.id)) {
       hereId = loc.id;
       hereName = roomById(loc.id).name;
-    } else if (loc.kind === "corridor") hereName = "복도";
+    } else if (loc.kind === "corridor") hereName = loc.id === "cable" ? "케이블카" : loc.id === "endless" ? "끝없는 복도" : "복도";
   }
   ctx.save();
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
-  if (world !== 1) {
+  if (world === 0) {
     ctx.lineCap = "butt";
     ctx.strokeStyle = "#3a414a";
     ctx.lineWidth = DIAG.half * 2;
@@ -842,17 +1041,25 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0, pending
     ctx.moveTo(DIAG.x1, DIAG.y1);
     ctx.lineTo(DIAG.x2, DIAG.y2);
     ctx.stroke();
+  } else if (world === 2) {
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = "#c5ced6";
+    ctx.lineWidth = CABLE.half * 2;
+    ctx.beginPath();
+    ctx.moveTo(CABLE.x1, CABLE.y1);
+    ctx.lineTo(CABLE.x2, CABLE.y2);
+    ctx.stroke();
   }
   for (const c of frame.halls) {
     if (c.kind !== "rect") continue;
-    const west = c.world === 1;
-    ctx.fillStyle = west ? "#c5ced6" : "#4e565f";
-    const padHall = west ? 8 : 0;
+    const special = c.world === 1 || c.world === 2;
+    ctx.fillStyle = c.id === "endless" ? "#6a7380" : special ? "#c5ced6" : "#4e565f";
+    const padHall = special ? 8 : 0;
     ctx.fillRect(c.x - padHall, c.y - padHall, c.w + padHall * 2, c.h + padHall * 2);
   }
   for (const room of frame.rooms) {
     const waiting = pendingSet.has(room.id);
-    ctx.fillStyle = waiting ? "#c43838" : room.world === 1 ? "#d5dde4" : "#8b939c";
+    ctx.fillStyle = waiting ? "#c43838" : room.world ? "#d5dde4" : "#8b939c";
     ctx.fillRect(room.x, room.y, room.w, room.h);
     ctx.strokeStyle = room.id === hereId ? "#f4efe4" : "#2a3038";
     ctx.lineWidth = room.id === hereId ? 36 : 18;
@@ -873,7 +1080,7 @@ export function drawMinimap(ctx, w, h, player, monsters = [], world = 0, pending
   ctx.font = '700 22px "IBM Plex Sans KR", sans-serif';
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.fillText(world === 1 ? "WORLD 1" : "WORLD 0", 10, 8);
+  ctx.fillText(world === 2 ? "WORLD 2" : world === 1 ? "WORLD 1" : "WORLD 0", 10, 8);
   if (hereName) {
     ctx.font = '700 20px "IBM Plex Sans KR", sans-serif';
     ctx.fillText(hereName, 10, 34);
