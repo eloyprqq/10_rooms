@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=51";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=51";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=51";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=51";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=51";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=51";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=52";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=52";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=52";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=52";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=52";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=52";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -1957,14 +1957,12 @@ function buildChaseCourse() {
   const hole = 110;
   const slots = [24, (h - hole) / 2, h - hole - 24];
   const step = 150;
-  const count = Math.floor((run - 140) / step);
-  const extra = new Set([Math.floor(count * 0.3), Math.floor(count * 0.55), Math.floor(count * 0.8)]);
   let i = 0;
   for (let ox = 140; ox < run; ox += step, i++) {
     const bw = 88;
     const x = hall.x + ox;
     const gaps = [slots[i % slots.length]];
-    if (extra.has(i)) gaps.push(slots[(i + 1) % slots.length]);
+    if (i % 3 === 2) gaps.push(slots[(i + 1) % slots.length]);
     gaps.sort((a, b) => a - b);
     let y = 0;
     let firstHole = y0 + gaps[0] + hole / 2;
@@ -1976,7 +1974,7 @@ function buildChaseCourse() {
     if (i % 2 !== 0) continue;
     const phase = i * 0.27;
     eyes.push({ x: x + bw / 2, y: firstHole - hole / 2 - 8, phase, host: true });
-    lasers.push({ x: x - 8, y: firstHole - 13, w: bw + 16, h: 26, phase });
+    lasers.push({ x: x - 8, y: firstHole - 13, w: bw + 16, h: 26, phase, dmg: 5 });
   }
   state.chaseBlocks = blocks;
   state.chaseLids = [];
@@ -2277,7 +2275,7 @@ function tickEyeHit(now) {
   for (const b of state.chaseLasers || []) {
     if (!beamOn(b, now)) continue;
     if (player.x > b.x && player.x < b.x + b.w && player.y > b.y && player.y < b.y + b.h) {
-      hazHit(20, "레이저.");
+      hazHit(b.dmg || 5, "레이저.");
       return;
     }
   }
