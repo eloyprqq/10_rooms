@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=50";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=50";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=50";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=50";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=50";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=50";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=51";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=51";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=51";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=51";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=51";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=51";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -718,6 +718,7 @@ function resetRun(difficulty) {
   state.chaseBlocks = [];
   state.chaseLids = [];
   state.chaseLasers = [];
+  state.chaseBeams = [];
   state.eyeParts = [];
   state.cannon = null;
   state.eyeBall = null;
@@ -1866,6 +1867,7 @@ function startBoss() {
   state.chaseBlocks = [];
   state.chaseLids = [];
   state.chaseLasers = [];
+  state.chaseBeams = [];
   state.eyeParts = [];
   state.cannon = null;
   state.eyeBall = null;
@@ -1980,6 +1982,17 @@ function buildChaseCourse() {
   state.chaseLids = [];
   state.chaseLasers = lasers;
   state.wallEyes = eyes;
+  const beams = [];
+  for (let ox = 900; ox < run - 400; ox += 1700) {
+    const top = beams.length % 2 === 0;
+    beams.push({
+      x: hall.x + ox,
+      y: top ? y0 + 36 : y0 + h - 36,
+      side: top ? 1 : -1,
+      phase: beams.length * 0.85,
+    });
+  }
+  state.chaseBeams = beams;
   state.eyeParts = [
     { id: "barrel", name: "포신", x: hall.x + run * 0.18, y: mid + 52, got: false },
     { id: "mount", name: "포대", x: hall.x + run * 0.48, y: mid - 52, got: false },
@@ -2218,6 +2231,18 @@ function hazHit(amount, msg) {
   toast(msg);
 }
 
+function chaseBeamLine(b, now) {
+  const hall = endlessRect();
+  const sweep = Math.sin(now / 700 + b.phase) * 0.7;
+  const ang = (b.side > 0 ? Math.PI / 2 : -Math.PI / 2) + sweep;
+  const reach = hall.h - 70;
+  return {
+    x2: b.x + Math.cos(ang) * reach,
+    y2: b.y + Math.sin(ang) * reach,
+    on: (now / 1000 + b.phase) % 2.4 < 1.15,
+  };
+}
+
 function tickEyeHit(now) {
   if (!player.alive || isGhost()) return;
   const loc = locate(player.x, player.y);
@@ -2252,6 +2277,14 @@ function tickEyeHit(now) {
   for (const b of state.chaseLasers || []) {
     if (!beamOn(b, now)) continue;
     if (player.x > b.x && player.x < b.x + b.w && player.y > b.y && player.y < b.y + b.h) {
+      hazHit(20, "레이저.");
+      return;
+    }
+  }
+  for (const b of state.chaseBeams || []) {
+    const line = chaseBeamLine(b, now);
+    if (!line.on) continue;
+    if (distToSeg(player.x, player.y, b.x, b.y, line.x2, line.y2) < 16) {
       hazHit(20, "레이저.");
       return;
     }
@@ -2291,6 +2324,23 @@ function drawEyeCombat() {
     ctx.fillRect(b.x, b.y, b.w, b.h);
     ctx.fillStyle = "rgba(255, 220, 220, 0.55)";
     ctx.fillRect(b.x, b.y + b.h * 0.35, b.w, Math.max(2, b.h * 0.28));
+  }
+  for (const b of state.chaseBeams || []) {
+    const line = chaseBeamLine(b, now);
+    drawLidEye(b.x, b.y, 46, line.on ? 0.95 : 0.35);
+    if (!line.on) continue;
+    ctx.strokeStyle = "rgba(225, 29, 46, 0.82)";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(line.x2, line.y2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 210, 210, 0.9)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(line.x2, line.y2);
+    ctx.stroke();
   }
   for (const w of state.wallEyes || []) {
     const p = wallEyePos(w, now);
