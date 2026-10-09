@@ -1,9 +1,9 @@
-import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=48";
-import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=48";
-import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=48";
-import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=48";
-import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=48";
-import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=48";
+import { ROOMS, roomById, roomCenter, anchorOf, getFloorCanvas, drawSchematic, drawMinimap, isWalkable, locate, WORLD, openAnnex, resetAnnex, annexIsOpen, annexLayer, leverSpot, whichWorld, corridorById, openSky, resetSky, skyIsOpen, skyLayer, endlessRect, paintSkyLive, cableLine, diagInfo } from "./map.js?v=49";
+import { createMatch, advance, scatterMonsters, spawnAnnexMonsters, applyMonsterView, rollDelta } from "./sim.js?v=49";
+import { unlockAudio, setMuted, isMuted, setMood, playHurt, playPickup, playBlackout, updateAudio } from "./audio.js?v=49";
+import { initMinigames, openWires, openCard, closeMinigames, minigameOpen } from "./minigames.js?v=49";
+import { TASKS, ANNEX_TASKS, DATA_ROOMS, ANNEX_DATA, initMissions, openRoomTasks, openSediment, closeMission, missionOpen, actionsFor } from "./missions.js?v=49";
+import { isFirebaseConfigured, createRoom, joinRoom, watchRoom, pushSelf, pushRoom, pushWorld, signal, sendRevive, replaceLoot, placeLoot, patchLoot, removeLoot, claimLoot, leaveRoom, amHost, selfId, currentCode } from "./net.js?v=49";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view");
@@ -1952,8 +1952,8 @@ function buildChaseCourse() {
   const blocks = [];
   const lasers = [];
   const eyes = [];
-  const hole = 78;
-  const bands = 3;
+  const hole = 90;
+  const bands = 2;
   const slab = (h - hole * bands) / (bands + 1);
   let i = 0;
   for (let ox = 140; ox < run; ox += 150, i++) {
@@ -1970,7 +1970,7 @@ function buildChaseCourse() {
     if (h - y > 4) blocks.push({ x, y: y0 + y, w: bw, h: h - y, kind: "wall" });
     if (i % 2 !== 0) continue;
     const phase = i * 0.27;
-    const holeY = holes[1];
+    const holeY = holes[i % holes.length];
     eyes.push({ x: x + bw / 2, y: holeY - hole / 2 - 8, phase, host: true });
     lasers.push({ x: x - 8, y: holeY - 13, w: bw + 16, h: 26, phase });
   }
